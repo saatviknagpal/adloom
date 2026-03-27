@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.Python
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# OS & editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Build & caches
+dist/
+build/
+.next/
+.turbo/
+*.egg-info/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Logs & local data
+*.log
+logs/
+tmp/
+temp/
+
+# Media artifacts (large / generated)
+*.mp4
+*.mov
+*.wav
+*.mp3
+uploads/
+outputs/
