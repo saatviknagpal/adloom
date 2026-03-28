@@ -29,16 +29,22 @@ type Snapshot = {
 type CharacterAsset = {
   id: string;
   name: string;
-  uri: string;
+  uri?: string;
   prompt: string;
+  pending?: boolean;
+  failed?: boolean;
+  error?: string;
 };
 
 type KeyframeAsset = {
   id: string;
   beatIndex: number;
   label: string;
-  uri: string;
+  uri?: string;
   prompt: string;
+  pending?: boolean;
+  failed?: boolean;
+  error?: string;
 };
 
 type StoryboardTab = "script" | "characters" | "keyframes";
@@ -92,27 +98,52 @@ export default function ChatPage() {
         if (data.assets) {
           const chars = data.assets
             .filter((a: { kind: string }) => a.kind === "character")
-            .map((a: { id: string; uri: string; prompt: string; meta: string }) => ({
-              id: a.id,
-              name: a.meta ? JSON.parse(a.meta).name : "Character",
-              uri: a.uri,
-              prompt: a.prompt ?? "",
-            }));
+            .map(
+              (a: {
+                id: string;
+                uri: string | null;
+                prompt: string | null;
+                meta: string | null;
+                generationStatus?: string;
+                generationError?: string | null;
+              }) => ({
+                id: a.id,
+                name: a.meta ? JSON.parse(a.meta).name : "Character",
+                uri: a.uri ?? undefined,
+                prompt: a.prompt ?? "",
+                pending: a.generationStatus === "pending",
+                failed: a.generationStatus === "failed",
+                error: a.generationError ?? undefined,
+              }),
+            );
           setCharacters(chars);
 
           const kfs = data.assets
             .filter((a: { kind: string }) => a.kind === "keyframe")
-            .map((a: { id: string; uri: string; prompt: string; meta: string; shotIndex: number }) => ({
-              id: a.id,
-              beatIndex: a.shotIndex ?? 0,
-              label: a.meta ? JSON.parse(a.meta).label : "Keyframe",
-              uri: a.uri,
-              prompt: a.prompt ?? "",
-            }));
+            .map(
+              (a: {
+                id: string;
+                uri: string | null;
+                prompt: string | null;
+                meta: string | null;
+                shotIndex: number | null;
+                generationStatus?: string;
+                generationError?: string | null;
+              }) => ({
+                id: a.id,
+                beatIndex: a.shotIndex ?? 0,
+                label: a.meta ? JSON.parse(a.meta).label : "Keyframe",
+                uri: a.uri ?? undefined,
+                prompt: a.prompt ?? "",
+                pending: a.generationStatus === "pending",
+                failed: a.generationStatus === "failed",
+                error: a.generationError ?? undefined,
+              }),
+            );
           setKeyframes(kfs);
 
           const prod = data.assets.find((a: { kind: string }) => a.kind === "product_image");
-          if (prod) setProductImage(prod.uri);
+          if (prod?.uri) setProductImage(prod.uri);
         }
       });
   }, [id]);
@@ -188,12 +219,104 @@ export default function ChatPage() {
             }
 
             if (payload.character) {
-              setCharacters((prev) => [...prev, payload.character]);
+              const c = payload.character as {
+                id: string;
+                name: string;
+                prompt?: string;
+                uri?: string;
+                pending?: boolean;
+                failed?: boolean;
+                error?: string;
+              };
+              setCharacters((prev) => {
+                const idx = prev.findIndex((x) => x.id === c.id);
+                const prevRow = idx >= 0 ? prev[idx] : undefined;
+                let row: CharacterAsset;
+                if (c.pending === true) {
+                  row = {
+                    id: c.id,
+                    name: c.name,
+                    prompt: c.prompt ?? prevRow?.prompt ?? "",
+                    pending: true,
+                    failed: false,
+                  };
+                } else if (c.failed === true) {
+                  row = {
+                    id: c.id,
+                    name: c.name,
+                    prompt: c.prompt ?? prevRow?.prompt ?? "",
+                    failed: true,
+                    pending: false,
+                    error: c.error,
+                  };
+                } else {
+                  row = {
+                    id: c.id,
+                    name: c.name,
+                    prompt: c.prompt ?? prevRow?.prompt ?? "",
+                    uri: c.uri,
+                    pending: false,
+                    failed: false,
+                  };
+                }
+                if (idx === -1) return [...prev, row];
+                const copy = [...prev];
+                copy[idx] = row;
+                return copy;
+              });
               setStoryboardTab("characters");
             }
 
             if (payload.keyframe) {
-              setKeyframes((prev) => [...prev, payload.keyframe]);
+              const k = payload.keyframe as {
+                id: string;
+                beatIndex: number;
+                label: string;
+                prompt?: string;
+                uri?: string;
+                pending?: boolean;
+                failed?: boolean;
+                error?: string;
+              };
+              setKeyframes((prev) => {
+                const idx = prev.findIndex((x) => x.id === k.id);
+                const prevRow = idx >= 0 ? prev[idx] : undefined;
+                let row: KeyframeAsset;
+                if (k.pending === true) {
+                  row = {
+                    id: k.id,
+                    beatIndex: k.beatIndex,
+                    label: k.label,
+                    prompt: k.prompt ?? prevRow?.prompt ?? "",
+                    pending: true,
+                    failed: false,
+                  };
+                } else if (k.failed === true) {
+                  row = {
+                    id: k.id,
+                    beatIndex: k.beatIndex,
+                    label: k.label,
+                    prompt: k.prompt ?? prevRow?.prompt ?? "",
+                    failed: true,
+                    pending: false,
+                    error: k.error,
+                  };
+                } else {
+                  row = {
+                    id: k.id,
+                    beatIndex: k.beatIndex,
+                    label: k.label,
+                    prompt: k.prompt ?? prevRow?.prompt ?? "",
+                    uri: k.uri,
+                    pending: false,
+                    failed: false,
+                  };
+                }
+                if (idx === -1) return [...prev, row];
+                const copy = [...prev];
+                copy[idx] = row;
+                return copy;
+              });
               setStoryboardTab("keyframes");
             }
 
@@ -385,15 +508,33 @@ export default function ChatPage() {
         {characters.map((char) => (
           <div
             key={char.id}
-            className="rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden cursor-pointer hover:border-zinc-600 transition"
-            onClick={() => setSelectedImage({ uri: char.uri, label: char.name })}
+            className={`rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden transition ${
+              char.uri && !char.failed ? "cursor-pointer hover:border-zinc-600" : "cursor-default"
+            }`}
+            onClick={() => {
+              if (char.uri && !char.failed) setSelectedImage({ uri: char.uri, label: char.name });
+            }}
           >
-            <div className="aspect-square bg-zinc-950">
-              <img
-                src={char.uri}
-                alt={char.name}
-                className="w-full h-full object-cover"
-              />
+            <div className="aspect-square bg-zinc-950 relative">
+              {char.pending && (
+                <div className="absolute inset-0 animate-pulse bg-zinc-800/80 flex items-center justify-center">
+                  <span className="text-[10px] text-zinc-500 px-2 text-center">Generating…</span>
+                </div>
+              )}
+              {char.failed && (
+                <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center p-2">
+                  <span className="text-[10px] text-red-400 text-center leading-snug">
+                    {char.error ?? "Failed"}
+                  </span>
+                </div>
+              )}
+              {char.uri && !char.pending && !char.failed && (
+                <img
+                  src={char.uri}
+                  alt={char.name}
+                  className="w-full h-full object-cover"
+                />
+              )}
             </div>
             <div className="p-2">
               <p className="text-xs font-medium text-zinc-300 truncate">{char.name}</p>
@@ -416,15 +557,33 @@ export default function ChatPage() {
         {keyframes.map((kf) => (
           <div
             key={kf.id}
-            className="rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden cursor-pointer hover:border-zinc-600 transition"
-            onClick={() => setSelectedImage({ uri: kf.uri, label: kf.label })}
+            className={`rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden transition ${
+              kf.uri && !kf.failed ? "cursor-pointer hover:border-zinc-600" : "cursor-default"
+            }`}
+            onClick={() => {
+              if (kf.uri && !kf.failed) setSelectedImage({ uri: kf.uri, label: kf.label });
+            }}
           >
-            <div className="aspect-video bg-zinc-950">
-              <img
-                src={kf.uri}
-                alt={kf.label}
-                className="w-full h-full object-cover"
-              />
+            <div className="aspect-video bg-zinc-950 relative">
+              {kf.pending && (
+                <div className="absolute inset-0 animate-pulse bg-zinc-800/80 flex items-center justify-center">
+                  <span className="text-[10px] text-zinc-500 px-2 text-center">Generating…</span>
+                </div>
+              )}
+              {kf.failed && (
+                <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center p-2">
+                  <span className="text-[10px] text-red-400 text-center leading-snug">
+                    {kf.error ?? "Failed"}
+                  </span>
+                </div>
+              )}
+              {kf.uri && !kf.pending && !kf.failed && (
+                <img
+                  src={kf.uri}
+                  alt={kf.label}
+                  className="w-full h-full object-cover"
+                />
+              )}
             </div>
             <div className="p-2">
               <div className="flex items-center gap-2 mb-0.5">

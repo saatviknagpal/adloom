@@ -44,15 +44,17 @@ model Message {
 }
 
 model Asset {
-  id        String   @id @default(cuid())
-  sessionId String
-  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  kind      String   // product_image | keyframe | video | voiceover | music | preview
-  region    String?  // US | IN | CN — null for shared assets like product_image
-  shotIndex Int?     // which beat/shot this belongs to
-  version   Int      @default(1)
-  uri       String
-  prompt    String?  // the prompt used to generate this asset
-  meta      String?  // JSON: extra metadata
-  createdAt DateTime @default(now())
+  id                String   @id @default(cuid())
+  sessionId         String
+  session           Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  kind              String   // product_image | character | keyframe | video | voiceover | music | preview
+  region            String?  // US | IN | CN — null for shared assets like product_image
+  shotIndex         Int?     // which beat/shot this belongs to
+  version           Int      @default(1)
+  uri               String?  // null while generationStatus is pending
+  generationStatus  String   @default("ready") // pending | ready | failed
+  generationError   String?
+  prompt            String?  // the prompt used to generate this asset
+  meta              String?  // JSON: extra metadata
+  createdAt         DateTime @default(now())
 }
