@@ -4,6 +4,12 @@ Locale-adaptive video ad generator. One creative brief, three culturally-adapted
 
 Built for the [UCLA Gemini API Hackathon](https://kaggle.com/competitions/ucla-gemini-api-hackathon).
 
+## Demo
+
+[![Adloom Demo](https://img.youtube.com/vi/lNmp-ElddPY/maxresdefault.jpg)](https://www.youtube.com/watch?v=lNmp-ElddPY)
+
+[Watch the full demo on YouTube](https://www.youtube.com/watch?v=lNmp-ElddPY)
+
 ## What it does
 
 You chat with an AI creative director to define your brand, product, scenes, and cast. After approving the script, the system generates locale-specific character portraits, scene-by-scene video clips with multilingual dialogue, and stitches everything into three final MP4 exports -- one per market.
@@ -97,7 +103,7 @@ This creates the Prisma client and pushes the schema to PostgreSQL. The database
 - `Session` -- tracks status, brief, regions, and links to messages/assets/snapshots
 - `Message` -- chat history (user, assistant, system)
 - `Snapshot` -- versioned script snapshots with scenes and characters
-- `Asset` -- all generated content (characters, keyframes, videos, final exports)
+- `Asset` -- all generated content (characters, videos, final exports)
 
 ### 5. Start the dev server
 
@@ -139,7 +145,7 @@ src/
     api/
       sessions/route.ts               # POST create, GET list sessions
       sessions/[id]/route.ts          # GET session, DELETE, PATCH clear
-      sessions/[id]/chat/route.ts     # POST chat (discovery + keyframe phases)
+      sessions/[id]/chat/route.ts     # POST chat (discovery + video generation phases)
       sessions/[id]/approve/route.ts  # POST approve script
       sessions/[id]/upload/route.ts   # POST upload product image
       sessions/[id]/snapshots/        # GET list, POST select snapshot
@@ -147,7 +153,7 @@ src/
       inngest/route.ts                # Inngest webhook endpoint
   server/
     services/
-      gemini.ts          # Discovery chat, keyframe agent, localization, gap-fill
+      gemini.ts          # Discovery chat, visual director agent, localization, gap-fill
       nano-banana.ts     # Character portrait generation (Gemini 3.1 Flash Image)
       veo.ts             # Video scene generation (Veo 3.1)
       stitch-video.ts    # FFmpeg video concatenation
@@ -187,8 +193,8 @@ docker-compose.yml       # PostgreSQL + MinIO + Inngest
 | `GET` | `/api/sessions/:id` | Get session with messages, assets, snapshots |
 | `DELETE` | `/api/sessions/:id` | Delete a session |
 | `PATCH` | `/api/sessions/:id` | Clear conversation (`{ action: "clear" }`) |
-| `POST` | `/api/sessions/:id/chat` | Send message (discovery or keyframe phase) |
-| `POST` | `/api/sessions/:id/approve` | Approve script, trigger keyframe phase |
+| `POST` | `/api/sessions/:id/chat` | Send message (discovery or video generation phase) |
+| `POST` | `/api/sessions/:id/approve` | Approve script, trigger production phase |
 | `POST` | `/api/sessions/:id/upload` | Upload product image |
 | `GET` | `/api/sessions/:id/snapshots` | List script snapshots |
 | `POST` | `/api/sessions/:id/snapshots/:sid/select` | Select a snapshot version |
@@ -205,14 +211,14 @@ The user chats with Gemini 2.5 Flash, which uses function calling to incremental
 When the user approves, the system:
 1. Merges the draft brief with the selected snapshot
 2. Runs gap-fill (Gemini infers any missing fields)
-3. Transitions to the keyframe generation phase
+3. Transitions to the production phase
 
-### Phase 3: Keyframe generation
+### Phase 3: Character and video generation
 Gemini acts as a "visual director" with two tools:
-- `generate_character` -- creates locale-specific character portraits via Nano Banana 2
+- `generate_character` -- creates locale-specific character portraits via Nano Banana 2 (Gemini 3.1 Flash Image)
 - `generate_videos` -- produces video clips per scene per locale via Veo 3.1
 
-Characters are generated first, then threaded as reference images into video generation for visual consistency.
+Characters are generated first for each market (US, India, China), then threaded as reference images into video generation so the same person appears consistently across scenes. Each locale gets its own cast with culturally appropriate appearance, and dialogue is adapted to the local language.
 
 ### Phase 4: Video stitching
 Scene clips per region are concatenated with FFmpeg into final MP4 exports. Each region gets one continuous video with all scenes in order.
