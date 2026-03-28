@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 type Message = {
   id: string;
@@ -590,11 +591,46 @@ export default function ChatPage() {
           {messages.map((m) => (
             <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                  m.role === "user" ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-200"
+                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                  m.role === "user" ? "bg-indigo-600 text-white whitespace-pre-wrap" : "bg-zinc-800 text-zinc-200"
                 }`}
               >
-                {m.content || <span className="animate-pulse text-zinc-500">...</span>}
+                {!m.content ? (
+                  <span className="animate-pulse text-zinc-500">...</span>
+                ) : m.role === "assistant" ? (
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc pl-4 mb-2 last:mb-0 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 last:mb-0 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li>{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                      code: ({ children, className }) => {
+                        const isBlock = className?.includes("language-");
+                        return isBlock ? (
+                          <pre className="bg-zinc-900 rounded-lg p-3 my-2 overflow-x-auto text-xs">
+                            <code>{children}</code>
+                          </pre>
+                        ) : (
+                          <code className="bg-zinc-900 px-1 py-0.5 rounded text-xs">{children}</code>
+                        );
+                      },
+                      pre: ({ children }) => <>{children}</>,
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-2 border-zinc-600 pl-3 my-2 text-zinc-400">{children}</blockquote>
+                      ),
+                      hr: () => <hr className="border-zinc-700 my-3" />,
+                    }}
+                  >
+                    {m.content}
+                  </ReactMarkdown>
+                ) : (
+                  m.content
+                )}
               </div>
             </div>
           ))}

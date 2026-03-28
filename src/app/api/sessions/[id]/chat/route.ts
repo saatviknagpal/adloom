@@ -73,7 +73,6 @@ async function executeCharacterTool(
   retryCounts: Record<string, number>,
 ): Promise<{ groupKey: string; success: boolean; responseChunk: string }> {
   const groupKey = toGroupKey(args.name);
-  let responseChunk = "";
 
   controller.enqueue(sseEncode({
     text: `\n\nGenerating character: ${args.name}...\n`,
@@ -97,7 +96,7 @@ async function executeCharacterTool(
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Asset creation failed";
     controller.enqueue(sseEncode({ text: `\nFailed to create asset for "${args.name}": ${msg}\n` }));
-    return { groupKey, success: false, responseChunk: `\n[Character "${args.name}" failed: ${msg}]\n` };
+    return { groupKey, success: false, responseChunk: "" };
   }
 
   controller.enqueue(sseEncode({
@@ -137,8 +136,7 @@ async function executeCharacterTool(
             pending: false,
           },
         }));
-        responseChunk = `\n[Character "${args.name}" generated: ${outcome.uri}]\n`;
-        return { groupKey, success: true, responseChunk };
+        return { groupKey, success: true, responseChunk: "" };
       }
       lastError = outcome.error;
     } catch (err) {
@@ -164,8 +162,7 @@ async function executeCharacterTool(
     },
   }));
   controller.enqueue(sseEncode({ text: `\nFailed to generate character "${args.name}": ${lastError}\n` }));
-  responseChunk = `\n[Character "${args.name}" failed: ${lastError}]\n`;
-  return { groupKey, success: false, responseChunk };
+  return { groupKey, success: false, responseChunk: "" };
 }
 
 async function handleKeyframeChat(
@@ -221,8 +218,7 @@ async function handleKeyframeChat(
               if (event.type === "tool_call" && event.name === "generate_character") {
                 hadToolCall = true;
                 const charArgs = event.args as { name: string; visualPrompt: string; id?: string };
-                const result = await executeCharacterTool(controller, id, charArgs, retryCounts);
-                fullResponse += result.responseChunk;
+                await executeCharacterTool(controller, id, charArgs, retryCounts);
               }
 
               if (event.type === "tool_call" && event.name === "generate_keyframe") {
@@ -280,12 +276,10 @@ async function handleKeyframeChat(
                       keyframe: { id: asset.id, beatIndex: args.beatIndex, label: args.label, prompt: args.visualPrompt, pending: false, failed: true, error: outcome.error },
                     }));
                     controller.enqueue(sseEncode({ text: `\nFailed to generate keyframe "${args.label}": ${outcome.error}\n` }));
-                    fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} failed: ${outcome.error}]\n`;
                   } else {
                     controller.enqueue(sseEncode({
                       keyframe: { id: asset.id, beatIndex: args.beatIndex, label: args.label, uri: outcome.uri, prompt: args.visualPrompt, pending: false },
                     }));
-                    fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} generated: ${outcome.uri}]\n`;
                   }
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : "Image generation failed";
@@ -296,7 +290,6 @@ async function handleKeyframeChat(
                     }));
                   }
                   controller.enqueue(sseEncode({ text: `\nFailed to generate keyframe "${args.label}": ${msg}\n` }));
-                  fullResponse += `\n[Keyframe "${args.label}" failed: ${msg}]\n`;
                 }
               }
             }
@@ -325,8 +318,7 @@ async function handleKeyframeChat(
 
             if (event.type === "tool_call" && event.name === "generate_character") {
               const charArgs = event.args as { name: string; visualPrompt: string; id?: string };
-              const result = await executeCharacterTool(controller, id, charArgs, retryCounts);
-              fullResponse += result.responseChunk;
+              await executeCharacterTool(controller, id, charArgs, retryCounts);
             }
 
             if (event.type === "tool_call" && event.name === "generate_keyframe") {
@@ -383,12 +375,10 @@ async function handleKeyframeChat(
                     keyframe: { id: asset.id, beatIndex: args.beatIndex, label: args.label, prompt: args.visualPrompt, pending: false, failed: true, error: outcome.error },
                   }));
                   controller.enqueue(sseEncode({ text: `\nFailed to generate keyframe "${args.label}": ${outcome.error}\n` }));
-                  fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} failed: ${outcome.error}]\n`;
                 } else {
                   controller.enqueue(sseEncode({
                     keyframe: { id: asset.id, beatIndex: args.beatIndex, label: args.label, uri: outcome.uri, prompt: args.visualPrompt, pending: false },
                   }));
-                  fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} generated: ${outcome.uri}]\n`;
                 }
               } catch (err) {
                 const msg = err instanceof Error ? err.message : "Image generation failed";
@@ -399,7 +389,6 @@ async function handleKeyframeChat(
                   }));
                 }
                 controller.enqueue(sseEncode({ text: `\nFailed to generate keyframe "${args.label}": ${msg}\n` }));
-                fullResponse += `\n[Keyframe "${args.label}" failed: ${msg}]\n`;
               }
             }
           }

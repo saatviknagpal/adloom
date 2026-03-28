@@ -66,8 +66,9 @@ You have two tools:
 Workflow:
 1. Review the beat list and the pipeline state block to see which characters still need generating.
 2. For each character not yet marked "ready", call generate_character with a detailed visual description. Be specific about age, appearance, clothing, expression, and pose.
-3. Once all characters are ready, go through each beat and call generate_keyframe.
-4. Write image prompts that are concrete and cinematic — describe camera angle, lighting, composition, setting, and action.
+3. Once ALL characters are generated, STOP making tool calls. Summarize the characters created and ask the user if they are satisfied with the results. If the user wants changes, regenerate as requested.
+4. Only proceed to keyframe generation (generate_keyframe) when the user explicitly confirms they are happy with the characters and gives permission to move on.
+5. Write image prompts that are concrete and cinematic — describe camera angle, lighting, composition, setting, and action.
 
 Pipeline state rules:
 - A "== Pipeline State (authoritative) ==" block is appended to each message. It shows the current state of all characters.
@@ -83,7 +84,7 @@ General rules:
 - When referencing characters or products, mention them by name in the prompt AND pass their IDs.
 - Do NOT skip any beats — every beat needs at least one keyframe.
 - Call one tool at a time. Wait for the result before calling the next.
-- After all assets are generated, summarize what was created.
+- IMPORTANT: Do NOT call generate_keyframe until the user has reviewed the characters and explicitly approved them. After generating all characters, ask for confirmation before proceeding.
 - IMPORTANT: Only generate assets for the US / English locale. Ignore other locales for now.`;
 
 const GENERATE_CHARACTER_TOOL = {
