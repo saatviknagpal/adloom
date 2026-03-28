@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getGeminiHistory, getSession, updateSessionBrief } from "@/server/services/session";
-import { extractBrief } from "@/server/services/gemini";
+import { getSelectedSnapshot, getSession, updateSessionBrief } from "@/server/services/session";
+import { localizeBrief } from "@/server/services/gemini";
 
 type Params = Promise<{ id: string }>;
 
@@ -12,22 +12,23 @@ export async function POST(_req: Request, ctx: { params: Params }) {
     return NextResponse.json({ error: "Session is not in chat phase" }, { status: 400 });
   }
 
-  const history = getGeminiHistory(
-    session.messages.map((m) => ({ role: m.role, content: m.content })),
-  );
+  const snapshot = await getSelectedSnapshot(id);
+  if (!snapshot) {
+    return NextResponse.json({ error: "No snapshots found. Chat until a beat list is generated." }, { status: 400 });
+  }
 
   try {
-    const raw = await extractBrief(history);
+    const raw = await localizeBrief(snapshot.content);
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const parsed = JSON.parse(cleaned);
     const briefStr = JSON.stringify(parsed);
-    const beatsStr = JSON.stringify(parsed.beats ?? []);
+    const beatsStr = snapshot.content;
 
     await updateSessionBrief(id, briefStr, beatsStr);
 
     return NextResponse.json({ status: "script_approved", brief: parsed });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to extract brief";
+    const msg = err instanceof Error ? err.message : "Failed to localize brief";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -8,7 +8,11 @@ export async function createSession() {
 export async function getSession(id: string) {
   return prisma.session.findUnique({
     where: { id },
-    include: { messages: { orderBy: { createdAt: "asc" } }, assets: true },
+    include: {
+      messages: { orderBy: { createdAt: "asc" } },
+      assets: true,
+      snapshots: { orderBy: { version: "asc" } },
+    },
   });
 }
 
@@ -41,4 +45,61 @@ export function getGeminiHistory(messages: { role: string; content: string }[]) 
       role: m.role === "assistant" ? ("model" as const) : ("user" as const),
       parts: [{ text: m.content }],
     }));
+}
+
+export async function createSnapshot(
+  sessionId: string,
+  content: string,
+  messageId?: string,
+  label?: string,
+) {
+  const latest = await prisma.snapshot.findFirst({
+    where: { sessionId },
+    orderBy: { version: "desc" },
+    select: { version: true },
+  });
+  const nextVersion = (latest?.version ?? 0) + 1;
+
+  return prisma.snapshot.create({
+    data: {
+      sessionId,
+      version: nextVersion,
+      label: label ?? `v${nextVersion}`,
+      content,
+      messageId,
+      selected: false,
+    },
+  });
+}
+
+export async function getSnapshots(sessionId: string) {
+  return prisma.snapshot.findMany({
+    where: { sessionId },
+    orderBy: { version: "asc" },
+  });
+}
+
+export async function selectSnapshot(snapshotId: string, sessionId: string) {
+  await prisma.$transaction([
+    prisma.snapshot.updateMany({
+      where: { sessionId },
+      data: { selected: false },
+    }),
+    prisma.snapshot.update({
+      where: { id: snapshotId },
+      data: { selected: true },
+    }),
+  ]);
+}
+
+export async function getSelectedSnapshot(sessionId: string) {
+  const selected = await prisma.snapshot.findFirst({
+    where: { sessionId, selected: true },
+  });
+  if (selected) return selected;
+
+  return prisma.snapshot.findFirst({
+    where: { sessionId },
+    orderBy: { version: "desc" },
+  });
 }

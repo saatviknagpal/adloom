@@ -8,16 +8,29 @@ datasource db {
 }
 
 model Session {
-  id        String    @id @default(cuid())
-  status    String    @default("chatting") // chatting | script_approved | keyframes_review | keyframes_approved | generating | done | failed
-  brief     String?   // JSON: extracted structured brief once script is approved
-  beats     String?   // JSON: canonical beat list
-  regions   String    @default("[\"US\",\"IN\",\"CN\"]") // JSON array of selected regions
+  id        String     @id @default(cuid())
+  status    String     @default("chatting") // chatting | script_approved | keyframes_review | keyframes_approved | generating | done | failed
+  brief     String?    // JSON: extracted structured brief once script is approved
+  beats     String?    // JSON: canonical beat list
+  regions   String     @default("[\"US\",\"IN\",\"CN\"]") // JSON array of selected regions
   error     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
   messages  Message[]
   assets    Asset[]
+  snapshots Snapshot[]
+}
+
+model Snapshot {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  version   Int
+  label     String?
+  content   String   // JSON: structured beat list from tool call
+  selected  Boolean  @default(false)
+  messageId String?
+  createdAt DateTime @default(now())
 }
 
 model Message {

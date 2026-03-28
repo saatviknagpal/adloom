@@ -1,7 +1,13 @@
-import { addMessage, getGeminiHistory, getSession } from "@/server/services/session";
-import { streamChat } from "@/server/services/gemini";
+import { addMessage, createSnapshot, getGeminiHistory, getSession } from "@/server/services/session";
+import { streamChat, extractBeatsFromText } from "@/server/services/gemini";
 
 type Params = Promise<{ id: string }>;
+
+function looksLikeBeatList(text: string): boolean {
+  const numbered = (text.match(/^\s*\d+\.\s+\*?\*?/gm) ?? []).length;
+  const hasBeatKeywords = /\b(hook|problem|reveal|cta|beat)\b/i.test(text);
+  return numbered >= 3 && hasBeatKeywords;
+}
 
 export async function POST(req: Request, ctx: { params: Params }) {
   const { id } = await ctx.params;
@@ -22,20 +28,80 @@ export async function POST(req: Request, ctx: { params: Params }) {
 
   const encoder = new TextEncoder();
   let fullResponse = "";
+  let toolCallFired = false;
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const chunk of streamChat(history, body.message)) {
-          fullResponse += chunk;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
+        for await (const event of streamChat(history, body.message)) {
+          if (event.type === "text") {
+            fullResponse += event.text;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.text })}\n\n`));
+          }
+
+          if (event.type === "tool_call" && event.name === "save_beat_list") {
+            toolCallFired = true;
+            const msg = await addMessage(id, "assistant", fullResponse);
+            fullResponse = "";
+            const snapshot = await createSnapshot(
+              id,
+              JSON.stringify(event.args),
+              msg.id,
+              (event.args as { label?: string }).label,
+            );
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  snapshot: {
+                    id: snapshot.id,
+                    version: snapshot.version,
+                    label: snapshot.label,
+                    content: event.args,
+                  },
+                })}\n\n`,
+              ),
+            );
+          }
         }
-        await addMessage(id, "assistant", fullResponse);
+
+        if (fullResponse) {
+          const msg = await addMessage(id, "assistant", fullResponse);
+
+          if (!toolCallFired && looksLikeBeatList(fullResponse)) {
+            try {
+              const extracted = await extractBeatsFromText(fullResponse);
+              if (extracted) {
+                const parsed = JSON.parse(extracted);
+                const snapshot = await createSnapshot(
+                  id,
+                  extracted,
+                  msg.id,
+                  parsed.label ?? "Revised draft",
+                );
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      snapshot: {
+                        id: snapshot.id,
+                        version: snapshot.version,
+                        label: snapshot.label,
+                        content: parsed,
+                      },
+                    })}\n\n`,
+                  ),
+                );
+              }
+            } catch {
+              // fallback extraction failed — not critical
+            }
+          }
+        }
+
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
         controller.close();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errMsg })}\n\n`));
         controller.close();
       }
     },
