@@ -103,3 +103,40 @@ export async function getSelectedSnapshot(sessionId: string) {
     orderBy: { version: "desc" },
   });
 }
+
+export async function createAsset(
+  sessionId: string,
+  kind: string,
+  uri: string,
+  opts?: {
+    region?: string;
+    shotIndex?: number;
+    prompt?: string;
+    meta?: string;
+  },
+) {
+  return prisma.asset.create({
+    data: {
+      sessionId,
+      kind,
+      uri,
+      region: opts?.region,
+      shotIndex: opts?.shotIndex,
+      prompt: opts?.prompt,
+      meta: opts?.meta,
+    },
+  });
+}
+
+export async function getAssetsByKind(sessionId: string, kind: string) {
+  return prisma.asset.findMany({
+    where: { sessionId, kind },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+export async function getProductImage(sessionId: string) {
+  return prisma.asset.findFirst({
+    where: { sessionId, kind: "product_image" },
+  });
+}

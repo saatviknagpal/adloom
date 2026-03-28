@@ -1,5 +1,21 @@
-import { addMessage, createSnapshot, getGeminiHistory, getSession } from "@/server/services/session";
-import { streamChat, extractBeatsFromText } from "@/server/services/gemini";
+import {
+  addMessage,
+  createAsset,
+  createSnapshot,
+  getAssetsByKind,
+  getGeminiHistory,
+  getProductImage,
+  getSession,
+  updateSessionStatus,
+} from "@/server/services/session";
+import {
+  buildKeyframeContext,
+  extractBeatsFromText,
+  streamChat,
+  streamKeyframeChat,
+} from "@/server/services/gemini";
+import { generateImage } from "@/server/services/nano-banana";
+import path from "path";
 
 type Params = Promise<{ id: string }>;
 
@@ -9,24 +25,174 @@ function looksLikeBeatList(text: string): boolean {
   return numbered >= 3 && hasBeatKeywords;
 }
 
-export async function POST(req: Request, ctx: { params: Params }) {
-  const { id } = await ctx.params;
-  const session = await getSession(id);
-  if (!session) return new Response("Session not found", { status: 404 });
-  if (session.status !== "chatting") {
-    return new Response("Session is no longer in chat phase", { status: 400 });
+function sseEncode(data: Record<string, unknown>): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+// ── Keyframe generation phase ──────────────────────────────────────────────
+
+async function handleKeyframeChat(
+  id: string,
+  session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
+  userMessage: string,
+) {
+  const history = getGeminiHistory(
+    session.messages.map((m) => ({ role: m.role, content: m.content })),
+  );
+
+  const isFirstKeyframeMessage = !session.messages.some(
+    (m) => m.role === "system" && m.content.includes("approved brief"),
+  );
+
+  let contextMessage = userMessage;
+  if (isFirstKeyframeMessage && session.brief && session.beats) {
+    contextMessage = buildKeyframeContext(session.brief, session.beats);
+    await addMessage(id, "system", contextMessage);
   }
 
-  const body = (await req.json()) as { message: string; imageUrl?: string };
-  if (!body.message?.trim()) return new Response("Empty message", { status: 400 });
+  await addMessage(id, "user", userMessage);
 
+  let fullResponse = "";
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        if (session.status === "script_approved") {
+          await updateSessionStatus(id, "keyframes_review");
+          controller.enqueue(sseEncode({ status: "keyframes_review" }));
+        }
+
+        for await (const event of streamKeyframeChat(history, contextMessage)) {
+          if (event.type === "text") {
+            fullResponse += event.text;
+            controller.enqueue(sseEncode({ text: event.text }));
+          }
+
+          if (event.type === "tool_call" && event.name === "generate_character") {
+            const args = event.args as {
+              name: string;
+              visualPrompt: string;
+            };
+
+            controller.enqueue(sseEncode({
+              text: `\n\nGenerating character: ${args.name}...\n`,
+            }));
+
+            try {
+              const result = await generateImage(args.visualPrompt, id);
+              const asset = await createAsset(id, "character", result.uri, {
+                prompt: args.visualPrompt,
+                meta: JSON.stringify({ name: args.name }),
+              });
+              controller.enqueue(sseEncode({
+                character: {
+                  id: asset.id,
+                  name: args.name,
+                  uri: result.uri,
+                  prompt: args.visualPrompt,
+                },
+              }));
+              fullResponse += `\n[Character "${args.name}" generated: ${result.uri}]\n`;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "Image generation failed";
+              controller.enqueue(sseEncode({ text: `\nFailed to generate character "${args.name}": ${msg}\n` }));
+              fullResponse += `\n[Character "${args.name}" failed: ${msg}]\n`;
+            }
+          }
+
+          if (event.type === "tool_call" && event.name === "generate_keyframe") {
+            const args = event.args as {
+              beatIndex: number;
+              label: string;
+              visualPrompt: string;
+              characterIds?: string[];
+              includeProductImage?: boolean;
+            };
+
+            controller.enqueue(sseEncode({
+              text: `\n\nGenerating keyframe: ${args.label} (beat ${args.beatIndex})...\n`,
+            }));
+
+            try {
+              const refImages: string[] = [];
+
+              if (args.characterIds?.length) {
+                const charAssets = await getAssetsByKind(id, "character");
+                for (const charId of args.characterIds) {
+                  const match = charAssets.find((a) => a.id === charId);
+                  if (match) {
+                    refImages.push(path.join(process.cwd(), "public", match.uri));
+                  }
+                }
+              }
+
+              if (args.includeProductImage) {
+                const productAsset = await getProductImage(id);
+                if (productAsset) {
+                  refImages.push(path.join(process.cwd(), "public", productAsset.uri));
+                }
+              }
+
+              const result = await generateImage(
+                args.visualPrompt,
+                id,
+                refImages.length > 0 ? refImages : undefined,
+              );
+
+              const asset = await createAsset(id, "keyframe", result.uri, {
+                shotIndex: args.beatIndex,
+                prompt: args.visualPrompt,
+                meta: JSON.stringify({ label: args.label }),
+              });
+
+              controller.enqueue(sseEncode({
+                keyframe: {
+                  id: asset.id,
+                  beatIndex: args.beatIndex,
+                  label: args.label,
+                  uri: result.uri,
+                  prompt: args.visualPrompt,
+                },
+              }));
+              fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} generated: ${result.uri}]\n`;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "Image generation failed";
+              controller.enqueue(sseEncode({ text: `\nFailed to generate keyframe "${args.label}": ${msg}\n` }));
+              fullResponse += `\n[Keyframe "${args.label}" failed: ${msg}]\n`;
+            }
+          }
+        }
+
+        if (fullResponse) {
+          await addMessage(id, "assistant", fullResponse);
+        }
+
+        controller.enqueue(sseEncode({ done: true }));
+        controller.close();
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        controller.enqueue(sseEncode({ error: errMsg }));
+        controller.close();
+      }
+    },
+  });
+
+  return stream;
+}
+
+// ── Script chat phase ──────────────────────────────────────────────────────
+
+async function handleScriptChat(
+  id: string,
+  session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
+  body: { message: string; imageUrl?: string },
+) {
   await addMessage(id, "user", body.message, body.imageUrl);
 
   const history = getGeminiHistory(
     session.messages.map((m) => ({ role: m.role, content: m.content })),
   );
 
-  const encoder = new TextEncoder();
   let fullResponse = "";
   let toolCallFired = false;
 
@@ -36,7 +202,7 @@ export async function POST(req: Request, ctx: { params: Params }) {
         for await (const event of streamChat(history, body.message)) {
           if (event.type === "text") {
             fullResponse += event.text;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.text })}\n\n`));
+            controller.enqueue(sseEncode({ text: event.text }));
           }
 
           if (event.type === "tool_call" && event.name === "save_beat_list") {
@@ -49,18 +215,14 @@ export async function POST(req: Request, ctx: { params: Params }) {
               msg.id,
               (event.args as { label?: string }).label,
             );
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  snapshot: {
-                    id: snapshot.id,
-                    version: snapshot.version,
-                    label: snapshot.label,
-                    content: event.args,
-                  },
-                })}\n\n`,
-              ),
-            );
+            controller.enqueue(sseEncode({
+              snapshot: {
+                id: snapshot.id,
+                version: snapshot.version,
+                label: snapshot.label,
+                content: event.args,
+              },
+            }));
           }
         }
 
@@ -78,40 +240,59 @@ export async function POST(req: Request, ctx: { params: Params }) {
                   msg.id,
                   parsed.label ?? "Revised draft",
                 );
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({
-                      snapshot: {
-                        id: snapshot.id,
-                        version: snapshot.version,
-                        label: snapshot.label,
-                        content: parsed,
-                      },
-                    })}\n\n`,
-                  ),
-                );
+                controller.enqueue(sseEncode({
+                  snapshot: {
+                    id: snapshot.id,
+                    version: snapshot.version,
+                    label: snapshot.label,
+                    content: parsed,
+                  },
+                }));
               }
             } catch {
-              // fallback extraction failed — not critical
+              // fallback extraction failed
             }
           }
         }
 
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+        controller.enqueue(sseEncode({ done: true }));
         controller.close();
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errMsg })}\n\n`));
+        controller.enqueue(sseEncode({ error: errMsg }));
         controller.close();
       }
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  return stream;
+}
+
+// ── Route handler ──────────────────────────────────────────────────────────
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+};
+
+export async function POST(req: Request, ctx: { params: Params }) {
+  const { id } = await ctx.params;
+  const session = await getSession(id);
+  if (!session) return new Response("Session not found", { status: 404 });
+
+  const body = (await req.json()) as { message: string; imageUrl?: string };
+  if (!body.message?.trim()) return new Response("Empty message", { status: 400 });
+
+  if (session.status === "chatting") {
+    const stream = await handleScriptChat(id, session, body);
+    return new Response(stream, { headers: SSE_HEADERS });
+  }
+
+  if (session.status === "script_approved" || session.status === "keyframes_review") {
+    const stream = await handleKeyframeChat(id, session, body.message);
+    return new Response(stream, { headers: SSE_HEADERS });
+  }
+
+  return new Response("Session is not in an active phase", { status: 400 });
 }

@@ -26,6 +26,23 @@ type Snapshot = {
   createdAt: string;
 };
 
+type CharacterAsset = {
+  id: string;
+  name: string;
+  uri: string;
+  prompt: string;
+};
+
+type KeyframeAsset = {
+  id: string;
+  beatIndex: number;
+  label: string;
+  uri: string;
+  prompt: string;
+};
+
+type StoryboardTab = "script" | "characters" | "keyframes";
+
 export default function ChatPage() {
   const { id } = useParams<{ id: string }>();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -34,9 +51,18 @@ export default function ChatPage() {
   const [status, setStatus] = useState<string>("chatting");
   const [approving, setApproving] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [characters, setCharacters] = useState<CharacterAsset[]>([]);
+  const [keyframes, setKeyframes] = useState<KeyframeAsset[]>([]);
   const [expandedSnap, setExpandedSnap] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"chat" | "versions">("chat");
+  const [activeTab, setActiveTab] = useState<"chat" | "storyboard">("chat");
+  const [storyboardTab, setStoryboardTab] = useState<StoryboardTab>("script");
+  const [productImage, setProductImage] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{ uri: string; label: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isKeyframePhase = status === "script_approved" || status === "keyframes_review";
 
   const fetchSnapshots = useCallback(async () => {
     const res = await fetch(`/api/sessions/${id}/snapshots`);
@@ -52,15 +78,42 @@ export default function ChatPage() {
       .then((data) => {
         if (data.messages) {
           setMessages(
-            data.messages.map((m: { id: string; role: string; content: string }) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-            })),
+            data.messages
+              .filter((m: { role: string }) => m.role !== "system")
+              .map((m: { id: string; role: string; content: string }) => ({
+                id: m.id,
+                role: m.role as "user" | "assistant",
+                content: m.content,
+              })),
           );
         }
         if (data.status) setStatus(data.status);
         if (data.snapshots) setSnapshots(data.snapshots);
+        if (data.assets) {
+          const chars = data.assets
+            .filter((a: { kind: string }) => a.kind === "character")
+            .map((a: { id: string; uri: string; prompt: string; meta: string }) => ({
+              id: a.id,
+              name: a.meta ? JSON.parse(a.meta).name : "Character",
+              uri: a.uri,
+              prompt: a.prompt ?? "",
+            }));
+          setCharacters(chars);
+
+          const kfs = data.assets
+            .filter((a: { kind: string }) => a.kind === "keyframe")
+            .map((a: { id: string; uri: string; prompt: string; meta: string; shotIndex: number }) => ({
+              id: a.id,
+              beatIndex: a.shotIndex ?? 0,
+              label: a.meta ? JSON.parse(a.meta).label : "Keyframe",
+              uri: a.uri,
+              prompt: a.prompt ?? "",
+            }));
+          setKeyframes(kfs);
+
+          const prod = data.assets.find((a: { kind: string }) => a.kind === "product_image");
+          if (prod) setProductImage(prod.uri);
+        }
       });
   }, [id]);
 
@@ -111,6 +164,7 @@ export default function ChatPage() {
           if (!line.startsWith("data: ")) continue;
           try {
             const payload = JSON.parse(line.slice(6));
+
             if (payload.text) {
               setMessages((prev) =>
                 prev.map((m) =>
@@ -118,16 +172,35 @@ export default function ChatPage() {
                 ),
               );
             }
+
             if (payload.snapshot) {
-              setSnapshots((prev) => [...prev, {
-                id: payload.snapshot.id,
-                version: payload.snapshot.version,
-                label: payload.snapshot.label,
-                content: JSON.stringify(payload.snapshot.content),
-                selected: false,
-                createdAt: new Date().toISOString(),
-              }]);
+              setSnapshots((prev) => [
+                ...prev,
+                {
+                  id: payload.snapshot.id,
+                  version: payload.snapshot.version,
+                  label: payload.snapshot.label,
+                  content: JSON.stringify(payload.snapshot.content),
+                  selected: false,
+                  createdAt: new Date().toISOString(),
+                },
+              ]);
             }
+
+            if (payload.character) {
+              setCharacters((prev) => [...prev, payload.character]);
+              setStoryboardTab("characters");
+            }
+
+            if (payload.keyframe) {
+              setKeyframes((prev) => [...prev, payload.keyframe]);
+              setStoryboardTab("keyframes");
+            }
+
+            if (payload.status) {
+              setStatus(payload.status);
+            }
+
             if (payload.error) {
               setMessages((prev) =>
                 prev.map((m) =>
@@ -167,9 +240,26 @@ export default function ChatPage() {
 
   async function handleSelectSnapshot(snapshotId: string) {
     await fetch(`/api/sessions/${id}/snapshots/${snapshotId}/select`, { method: "POST" });
-    setSnapshots((prev) =>
-      prev.map((s) => ({ ...s, selected: s.id === snapshotId })),
-    );
+    setSnapshots((prev) => prev.map((s) => ({ ...s, selected: s.id === snapshotId })));
+  }
+
+  async function handleUploadProduct(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/sessions/${id}/upload`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.asset) {
+        setProductImage(data.asset.uri);
+      }
+    } catch {
+      alert("Upload failed");
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -188,18 +278,7 @@ export default function ChatPage() {
     }
   }
 
-  if (status === "script_approved") {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-6 px-6">
-        <div className="rounded-xl border border-green-800 bg-green-950/30 p-8 text-center max-w-md">
-          <h2 className="text-xl font-semibold text-green-400 mb-2">Script approved</h2>
-          <p className="text-zinc-400 text-sm">
-            Your beat list and localized scripts are locked. Next step: keyframe generation (coming soon).
-          </p>
-        </div>
-      </main>
-    );
-  }
+  // ── Panels ──────────────────────────────────────────────────────────────
 
   const chatPanel = (
     <div className="flex flex-1 flex-col min-h-0">
@@ -207,7 +286,9 @@ export default function ChatPage() {
         <div className="space-y-3">
           {messages.length === 0 && (
             <p className="text-center text-sm text-zinc-600 pt-16">
-              Describe your product, brand, audience, and what the ad should convey.
+              {isKeyframePhase
+                ? "Script approved! Send a message to start generating characters and keyframes."
+                : "Describe your product, brand, audience, and what the ad should convey."}
             </p>
           )}
           {messages.map((m) => (
@@ -227,79 +308,248 @@ export default function ChatPage() {
     </div>
   );
 
-  const snapshotPanel = (
-    <div className="flex flex-1 flex-col min-h-0">
-      <div className="px-4 py-3 border-b border-zinc-800">
-        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Versions</h2>
-      </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin space-y-3">
-        {snapshots.length === 0 && (
-          <p className="text-xs text-zinc-600 text-center pt-8">
-            No versions yet. Chat until a beat list is generated.
-          </p>
-        )}
-        {snapshots.map((snap) => {
-          const beats = parseBeats(snap.content);
-          const isExpanded = expandedSnap === snap.id;
-          return (
-            <div
-              key={snap.id}
-              className={`rounded-lg border p-3 transition cursor-pointer ${
-                snap.selected
-                  ? "border-indigo-500 bg-indigo-950/30"
-                  : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
-              }`}
-              onClick={() => setExpandedSnap(isExpanded ? null : snap.id)}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-zinc-300">v{snap.version}</span>
-                  {snap.selected && (
-                    <span className="text-[10px] font-medium bg-indigo-600 text-white px-1.5 py-0.5 rounded">
-                      Selected
-                    </span>
-                  )}
-                </div>
-                <span className="text-[10px] text-zinc-600">{beats.length} beats</span>
+  const scriptTab = (
+    <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin space-y-3">
+      {snapshots.length === 0 && (
+        <p className="text-xs text-zinc-600 text-center pt-8">
+          No versions yet. Chat until a beat list is generated.
+        </p>
+      )}
+      {snapshots.map((snap) => {
+        const beats = parseBeats(snap.content);
+        const isExpanded = expandedSnap === snap.id;
+        return (
+          <div
+            key={snap.id}
+            className={`rounded-lg border p-3 transition cursor-pointer ${
+              snap.selected
+                ? "border-indigo-500 bg-indigo-950/30"
+                : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
+            }`}
+            onClick={() => setExpandedSnap(isExpanded ? null : snap.id)}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-zinc-300">v{snap.version}</span>
+                {snap.selected && (
+                  <span className="text-[10px] font-medium bg-indigo-600 text-white px-1.5 py-0.5 rounded">
+                    Selected
+                  </span>
+                )}
               </div>
-              {snap.label && <p className="text-xs text-zinc-400 mb-1">{snap.label}</p>}
-              {!isExpanded && beats.length > 0 && (
-                <p className="text-xs text-zinc-500 truncate">{beats[0]?.spokenLine}</p>
-              )}
-              {isExpanded && (
-                <div className="mt-2 space-y-2">
-                  {beats.map((beat) => (
-                    <div key={beat.index} className="rounded bg-zinc-800/50 px-2.5 py-2">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-[10px] font-medium text-indigo-400 uppercase">{beat.label}</span>
-                        <span className="text-[10px] text-zinc-600">{beat.durationSec}s</span>
-                      </div>
-                      <p className="text-xs text-zinc-300 leading-relaxed">{beat.spokenLine}</p>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">{beat.description}</p>
-                    </div>
-                  ))}
-                  {!snap.selected && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleSelectSnapshot(snap.id); }}
-                      className="w-full rounded-md bg-indigo-600 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 transition"
-                    >
-                      Use this version
-                    </button>
-                  )}
-                </div>
-              )}
+              <span className="text-[10px] text-zinc-600">{beats.length} beats</span>
             </div>
-          );
-        })}
+            {snap.label && <p className="text-xs text-zinc-400 mb-1">{snap.label}</p>}
+            {!isExpanded && beats.length > 0 && (
+              <p className="text-xs text-zinc-500 truncate">{beats[0]?.spokenLine}</p>
+            )}
+            {isExpanded && (
+              <div className="mt-2 space-y-2">
+                {beats.map((beat) => (
+                  <div key={beat.index} className="rounded bg-zinc-800/50 px-2.5 py-2">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[10px] font-medium text-indigo-400 uppercase">{beat.label}</span>
+                      <span className="text-[10px] text-zinc-600">{beat.durationSec}s</span>
+                    </div>
+                    <p className="text-xs text-zinc-300 leading-relaxed">{beat.spokenLine}</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">{beat.description}</p>
+                  </div>
+                ))}
+                {!snap.selected && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectSnapshot(snap.id);
+                    }}
+                    className="w-full rounded-md bg-indigo-600 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 transition"
+                  >
+                    Use this version
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const charactersTab = (
+    <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin">
+      {characters.length === 0 && (
+        <p className="text-xs text-zinc-600 text-center pt-8">
+          No characters yet. Start generating to see them here.
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        {characters.map((char) => (
+          <div
+            key={char.id}
+            className="rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden cursor-pointer hover:border-zinc-600 transition"
+            onClick={() => setSelectedImage({ uri: char.uri, label: char.name })}
+          >
+            <div className="aspect-square bg-zinc-950">
+              <img
+                src={char.uri}
+                alt={char.name}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="p-2">
+              <p className="text-xs font-medium text-zinc-300 truncate">{char.name}</p>
+              <p className="text-[10px] text-zinc-600 truncate mt-0.5">{char.prompt}</p>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 
+  const keyframesTab = (
+    <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin">
+      {keyframes.length === 0 && (
+        <p className="text-xs text-zinc-600 text-center pt-8">
+          No keyframes yet. Start generating to see them here.
+        </p>
+      )}
+      <div className="space-y-3">
+        {keyframes.map((kf) => (
+          <div
+            key={kf.id}
+            className="rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden cursor-pointer hover:border-zinc-600 transition"
+            onClick={() => setSelectedImage({ uri: kf.uri, label: kf.label })}
+          >
+            <div className="aspect-video bg-zinc-950">
+              <img
+                src={kf.uri}
+                alt={kf.label}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="p-2">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[10px] font-medium text-indigo-400 uppercase">Beat {kf.beatIndex}</span>
+                <span className="text-xs text-zinc-300">{kf.label}</span>
+              </div>
+              <p className="text-[10px] text-zinc-600 truncate">{kf.prompt}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const storyboardPanel = (
+    <div className="flex flex-1 flex-col min-h-0">
+      {/* Tab bar */}
+      <div className="flex border-b border-zinc-800 shrink-0">
+        {(["script", "characters", "keyframes"] as StoryboardTab[]).map((tab) => {
+          const count =
+            tab === "script" ? snapshots.length : tab === "characters" ? characters.length : keyframes.length;
+          return (
+            <button
+              key={tab}
+              onClick={() => setStoryboardTab(tab)}
+              className={`flex-1 px-3 py-2.5 text-xs font-medium transition ${
+                storyboardTab === tab
+                  ? "text-indigo-400 border-b-2 border-indigo-500"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {count > 0 && (
+                <span className="ml-1 text-[10px] text-zinc-600">({count})</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Product image upload (visible in keyframe phase) */}
+      {isKeyframePhase && (
+        <div className="px-4 py-2 border-b border-zinc-800 shrink-0">
+          {productImage ? (
+            <div className="flex items-center gap-2">
+              <img src={productImage} alt="Product" className="w-8 h-8 rounded object-cover" />
+              <span className="text-xs text-zinc-400">Product image uploaded</span>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-[10px] text-indigo-400 hover:text-indigo-300"
+              >
+                Replace
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="w-full rounded-md border border-dashed border-zinc-700 py-2 text-xs text-zinc-500 hover:border-zinc-500 hover:text-zinc-300 transition"
+            >
+              {uploading ? "Uploading..." : "+ Add product image (optional)"}
+            </button>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleUploadProduct}
+            className="hidden"
+          />
+        </div>
+      )}
+
+      {/* Tab content */}
+      {storyboardTab === "script" && scriptTab}
+      {storyboardTab === "characters" && charactersTab}
+      {storyboardTab === "keyframes" && keyframesTab}
+    </div>
+  );
+
+  // ── Image preview lightbox ──────────────────────────────────────────────
+
+  const lightbox = selectedImage && (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={() => setSelectedImage(null)}
+    >
+      <div
+        className="max-w-2xl max-h-[80vh] rounded-xl overflow-hidden bg-zinc-900 border border-zinc-700"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={selectedImage.uri}
+          alt={selectedImage.label}
+          className="max-w-full max-h-[70vh] object-contain"
+        />
+        <div className="px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-zinc-300">{selectedImage.label}</span>
+          <button
+            onClick={() => setSelectedImage(null)}
+            className="text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Layout ──────────────────────────────────────────────────────────────
+
   return (
     <main className="flex h-screen flex-col">
+      {lightbox}
+
       {/* Header */}
       <header className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950/80 px-4 py-2.5 backdrop-blur shrink-0">
-        <h1 className="text-sm font-semibold text-zinc-300">Adloom</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-sm font-semibold text-zinc-300">Adloom</h1>
+          {isKeyframePhase && (
+            <span className="text-[10px] font-medium bg-emerald-900/50 text-emerald-400 px-2 py-0.5 rounded">
+              Keyframe Generation
+            </span>
+          )}
+        </div>
 
         {/* Mobile tab toggle */}
         <div className="flex items-center gap-2 md:hidden">
@@ -310,32 +560,45 @@ export default function ChatPage() {
             Chat
           </button>
           <button
-            onClick={() => { setActiveTab("versions"); fetchSnapshots(); }}
-            className={`text-xs px-2.5 py-1 rounded ${activeTab === "versions" ? "bg-zinc-800 text-zinc-200" : "text-zinc-500"}`}
+            onClick={() => {
+              setActiveTab("storyboard");
+              fetchSnapshots();
+            }}
+            className={`text-xs px-2.5 py-1 rounded ${activeTab === "storyboard" ? "bg-zinc-800 text-zinc-200" : "text-zinc-500"}`}
           >
-            Versions{snapshots.length > 0 ? ` (${snapshots.length})` : ""}
+            Storyboard
           </button>
         </div>
 
-        <button
-          onClick={handleApprove}
-          disabled={approving || snapshots.length === 0}
-          className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-green-500 disabled:opacity-40"
-        >
-          {approving ? "Localizing..." : "Approve script"}
-        </button>
+        {status === "chatting" && (
+          <button
+            onClick={handleApprove}
+            disabled={approving || snapshots.length === 0}
+            className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-green-500 disabled:opacity-40"
+          >
+            {approving ? "Localizing..." : "Approve script"}
+          </button>
+        )}
       </header>
 
       {/* Split pane */}
       <div className="flex flex-1 min-h-0">
-        {/* Chat — left on desktop, toggled on mobile */}
-        <div className={`flex flex-col md:w-[55%] md:border-r md:border-zinc-800 w-full ${activeTab !== "chat" ? "hidden md:flex" : "flex"}`}>
+        {/* Chat — left on desktop */}
+        <div
+          className={`flex flex-col md:w-[55%] md:border-r md:border-zinc-800 w-full ${
+            activeTab !== "chat" ? "hidden md:flex" : "flex"
+          }`}
+        >
           {chatPanel}
         </div>
 
-        {/* Snapshots — right on desktop, toggled on mobile */}
-        <div className={`flex flex-col md:w-[45%] w-full ${activeTab !== "versions" ? "hidden md:flex" : "flex"}`}>
-          {snapshotPanel}
+        {/* Storyboard — right on desktop */}
+        <div
+          className={`flex flex-col md:w-[45%] w-full ${
+            activeTab !== "storyboard" ? "hidden md:flex" : "flex"
+          }`}
+        >
+          {storyboardPanel}
         </div>
       </div>
 
@@ -346,7 +609,11 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe your ad concept..."
+            placeholder={
+              isKeyframePhase
+                ? "Type 'generate keyframes' or give feedback..."
+                : "Describe your ad concept..."
+            }
             rows={1}
             className="flex-1 resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500"
           />
