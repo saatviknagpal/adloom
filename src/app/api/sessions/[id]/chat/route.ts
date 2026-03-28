@@ -15,7 +15,7 @@ import {
   streamKeyframeChat,
 } from "@/server/services/gemini";
 import { generateImage } from "@/server/services/nano-banana";
-import path from "path";
+import { extractKeyFromUri } from "@/lib/storage";
 
 type Params = Promise<{ id: string }>;
 
@@ -114,14 +114,14 @@ async function handleKeyframeChat(
             }));
 
             try {
-              const refImages: string[] = [];
+              const refKeys: string[] = [];
 
               if (args.characterIds?.length) {
                 const charAssets = await getAssetsByKind(id, "character");
                 for (const charId of args.characterIds) {
                   const match = charAssets.find((a) => a.id === charId);
                   if (match) {
-                    refImages.push(path.join(process.cwd(), "public", match.uri));
+                    refKeys.push(extractKeyFromUri(match.uri));
                   }
                 }
               }
@@ -129,14 +129,14 @@ async function handleKeyframeChat(
               if (args.includeProductImage) {
                 const productAsset = await getProductImage(id);
                 if (productAsset) {
-                  refImages.push(path.join(process.cwd(), "public", productAsset.uri));
+                  refKeys.push(extractKeyFromUri(productAsset.uri));
                 }
               }
 
               const result = await generateImage(
                 args.visualPrompt,
                 id,
-                refImages.length > 0 ? refImages : undefined,
+                refKeys.length > 0 ? refKeys : undefined,
               );
 
               const asset = await createAsset(id, "keyframe", result.uri, {
