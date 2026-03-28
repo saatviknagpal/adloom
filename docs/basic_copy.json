@@ -1,0 +1,44 @@
+{
+  "brand": {
+    "name": "String — Brand name as it should appear on screen",
+    "tagline": "String — Brand or campaign tagline, if any"
+  },
+
+  "product": {
+    "name": "String — Product name as it should appear on screen",
+    "usp": "String — The ONE thing this ad communicates",
+    "images": ["URL — High-res product images (lifestyle or packshot)"]
+  },
+
+  "creative_direction": {
+    "theme": "String — Creative theme (e.g., 'High-energy fitness lifestyle', 'Minimal luxury unboxing', 'Raw UGC testimonial')",
+    "mood": "String — Emotional atmosphere (e.g., 'Empowering', 'Cozy', 'Tense', 'Celebratory')"
+  },
+
+  "the_hook": {
+    "type": "Enum [visual_surprise, bold_claim, question, product_in_action, pattern_interrupt, relatable_moment, sound_hook, text_hook] — Hook mechanic",
+    "visual": "String — What the viewer SEES in seconds 0.0 to 1.5 (e.g., 'Extreme close-up of serum dropping onto skin in slow-mo', 'Product smashing through a stack of competitor boxes')",
+    "audio": "String — What the viewer HEARS in seconds 0.0 to 1.5 (e.g., 'Satisfying pop sound', 'Record scratch', 'Whispered question', 'Silence then bass drop')"
+  },
+
+  "characters": {
+    "talent_type": "Enum [real_actor, ai_avatar, animated_character, ugc_style_creator, hand_model, no_talent]",
+    "cast": [
+      {
+        "role": "String — e.g., 'Main presenter', 'Product user'",
+        "description": "String — Brief visual description"
+      }
+    ]
+  },
+
+  "scenes": [
+    {
+      "scene_number": "Integer",
+      "start_time": "Float — Start timestamp in seconds",
+      "end_time": "Float — End timestamp in seconds",
+      "visual_description": "String — What is visually happening. Be specific about composition, lighting, setting, product placement",
+      
+      "camerashot_type": "Enum [extreme_close_up, close_up, medium_close_up, medium, medium_wide, wide, overhead, pov, dutch_angle]"
+      }
+  ]
+}
