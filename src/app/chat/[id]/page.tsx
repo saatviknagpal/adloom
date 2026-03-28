@@ -16,8 +16,15 @@ type SceneRow = {
   scene_number: number;
   start_time: number;
   end_time: number;
-  visual_description: string;
-  camerashot_type: string;
+  action_description: string;
+  start_frame_description: string;
+  end_frame_description: string;
+  camera_movement: string;
+  dialogue?: {
+    speaker: string;
+    line: string;
+    delivery_note: string;
+  };
 };
 
 type CastRow = {
@@ -58,7 +65,17 @@ type KeyframeAsset = {
   error?: string;
 };
 
-type StoryboardTab = "script" | "characters" | "keyframes";
+type VideoAsset = {
+  id: string;
+  sceneIndex: number;
+  uri?: string;
+  prompt: string;
+  pending?: boolean;
+  failed?: boolean;
+  error?: string;
+};
+
+type StoryboardTab = "script" | "characters" | "keyframes" | "videos";
 type Locale = "US" | "IN" | "CN";
 
 const LOCALES: { key: Locale; label: string; flag: string; color: string }[] = [
@@ -74,6 +91,7 @@ type SSEPayload = {
   snapshot?: { id: string; version: number; label: string; content: Record<string, unknown> };
   character?: CharacterAsset & { pending?: boolean; failed?: boolean; error?: string };
   keyframe?: KeyframeAsset & { pending?: boolean; failed?: boolean; error?: string };
+  video?: VideoAsset & { pending?: boolean; failed?: boolean; error?: string };
   status?: string;
   error?: string;
   draftUpdated?: boolean;
@@ -148,12 +166,14 @@ export default function ChatPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [characters, setCharacters] = useState<CharacterAsset[]>([]);
   const [keyframes, setKeyframes] = useState<KeyframeAsset[]>([]);
+  const [videos, setVideos] = useState<VideoAsset[]>([]);
   const [expandedSnap, setExpandedSnap] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "storyboard">("chat");
   const [storyboardTab, setStoryboardTab] = useState<StoryboardTab>("script");
   const [productImage, setProductImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{ uri: string; label: string } | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<{ uri: string; label: string } | null>(null);
   const [versionPickerGroup, setVersionPickerGroup] = useState<string | null>(null);
   const [selectedLocales, setSelectedLocales] = useState<Set<Locale>>(new Set(["US", "IN", "CN"]));
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -251,6 +271,28 @@ export default function ChatPage() {
         return copy;
       });
       setStoryboardTab("keyframes");
+    }
+
+    if (payload.video) {
+      const v = payload.video;
+      setVideos((prev) => {
+        const idx = prev.findIndex((x) => x.id === v.id);
+        const prevRow = idx >= 0 ? prev[idx] : undefined;
+        const row: VideoAsset = {
+          id: v.id,
+          sceneIndex: v.sceneIndex,
+          prompt: v.prompt ?? prevRow?.prompt ?? "",
+          uri: v.uri,
+          pending: v.pending ?? false,
+          failed: v.failed ?? false,
+          error: v.error,
+        };
+        if (idx === -1) return [...prev, row];
+        const copy = [...prev];
+        copy[idx] = row;
+        return copy;
+      });
+      setStoryboardTab("videos");
     }
 
     if (payload.status) setStatus(payload.status);
@@ -367,6 +409,29 @@ export default function ChatPage() {
               },
             );
           setKeyframes(kfs);
+
+          const vids = data.assets
+            .filter((a: { kind: string }) => a.kind === "video")
+            .map(
+              (a: {
+                id: string;
+                uri: string | null;
+                prompt: string | null;
+                meta: string | null;
+                shotIndex: number | null;
+                generationStatus?: string;
+                generationError?: string | null;
+              }) => ({
+                id: a.id,
+                sceneIndex: a.shotIndex ?? 0,
+                uri: a.uri ?? undefined,
+                prompt: a.prompt ?? "",
+                pending: a.generationStatus === "pending",
+                failed: a.generationStatus === "failed",
+                error: a.generationError ?? undefined,
+              }),
+            );
+          setVideos(vids);
 
           const prod = data.assets.find((a: { kind: string }) => a.kind === "product_image");
           if (prod?.uri) setProductImage(prod.uri);
@@ -646,7 +711,7 @@ export default function ChatPage() {
             </div>
             {snap.label && <p className="text-xs text-[#c7c4d7] mb-1">{snap.label}</p>}
             {!isExpanded && scenes.length > 0 && (
-              <p className="text-xs text-[#908fa0] truncate">{scenes[0]?.visual_description}</p>
+              <p className="text-xs text-[#908fa0] truncate">{scenes[0]?.action_description}</p>
             )}
             {isExpanded && (
               <div className="mt-3 space-y-3 animate-fade-in-up" style={{ animationDuration: "0.3s" }}>
@@ -669,10 +734,23 @@ export default function ChatPage() {
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="text-[10px] font-medium text-[#c0c1ff]">Scene {sc.scene_number}</span>
                           <span className="text-[10px] text-[#908fa0]">
-                            {sc.start_time}s&ndash;{sc.end_time}s &middot; {sc.camerashot_type}
+                            {sc.start_time}s&ndash;{sc.end_time}s &middot; {sc.camera_movement}
                           </span>
                         </div>
-                        <p className="text-xs text-[#c7c4d7] leading-relaxed">{sc.visual_description}</p>
+                        <p className="text-xs text-[#c7c4d7] leading-relaxed mb-1">{sc.action_description}</p>
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] text-[#908fa0]"><span className="text-[#c7c4d7]">Start:</span> {sc.start_frame_description}</p>
+                          <p className="text-[10px] text-[#908fa0]"><span className="text-[#c7c4d7]">End:</span> {sc.end_frame_description}</p>
+                        </div>
+                        {sc.dialogue && (
+                          <div className="mt-1 rounded bg-[#222a3d]/80 px-2 py-1.5">
+                            <p className="text-[10px] text-[#908fa0]">
+                              <span className="text-[#ffb783] font-medium">{sc.dialogue.speaker}:</span>{" "}
+                              <span className="text-[#c7c4d7] italic">&ldquo;{sc.dialogue.line}&rdquo;</span>
+                            </p>
+                            <p className="text-[10px] text-[#908fa0] mt-0.5">{sc.dialogue.delivery_note}</p>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -853,6 +931,69 @@ export default function ChatPage() {
     </div>
   );
 
+  // ── Storyboard: Videos tab ──────────────────────────────────────────────
+
+  const videosTab = (
+    <div className="flex-1 overflow-y-auto px-4 py-4 md:px-5 scrollbar-thin">
+      {videos.length === 0 && (
+        <div className="animate-fade-in-up mx-auto mt-10 max-w-xs rounded-xl border border-[#464554]/30 bg-[#171f33]/40 px-4 py-8 text-center">
+          <div className="mx-auto mb-3 w-10 h-10 rounded-lg bg-[#c0c1ff]/10 flex items-center justify-center">
+            <span className="text-[#c0c1ff]">&#127910;</span>
+          </div>
+          <p className="text-xs text-[#908fa0] leading-relaxed">
+            No videos yet. Approve keyframes and confirm video generation to see them here.
+          </p>
+        </div>
+      )}
+      <div className="space-y-4">
+        {videos.map((vid) => (
+          <div
+            key={vid.id}
+            className={`rounded-xl border border-[#464554]/30 bg-[#171f33]/60 overflow-hidden shadow-sm transition-all duration-300 hover:border-[#464554]/60 hover:shadow-lg ${
+              vid.uri && !vid.failed ? "cursor-pointer group" : "cursor-default"
+            }`}
+            onClick={() => {
+              if (vid.uri && !vid.failed) setSelectedVideo({ uri: vid.uri, label: `Scene ${vid.sceneIndex}` });
+            }}
+          >
+            <div className="aspect-video bg-[#060e20] relative overflow-hidden">
+              {vid.pending && (
+                <div className="absolute inset-0 animate-shimmer flex items-center justify-center">
+                  <span className="text-[10px] text-[#908fa0] px-2 text-center">Generating video&hellip;</span>
+                </div>
+              )}
+              {vid.failed && (
+                <div className="absolute inset-0 bg-[#171f33] flex items-center justify-center p-2">
+                  <span className="text-[10px] text-[#ffb4ab] text-center leading-snug">
+                    {vid.error ?? "Failed"}
+                  </span>
+                </div>
+              )}
+              {vid.uri && !vid.pending && !vid.failed && (
+                <video
+                  src={vid.uri}
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                />
+              )}
+            </div>
+            <div className="border-t border-[#464554]/20 p-3">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="rounded-md bg-[#c0c1ff]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0c1ff]">
+                  Scene {vid.sceneIndex}
+                </span>
+              </div>
+              <p className="text-[10px] text-[#908fa0] truncate">{vid.prompt}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   // ── Storyboard panel ───────────────────────────────────────────────────
 
   const storyboardPanel = (
@@ -860,9 +1001,15 @@ export default function ChatPage() {
       <div className="shrink-0 px-3 pt-3 pb-2 md:px-4">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#908fa0]">Storyboard</p>
         <div className="flex gap-1 rounded-xl border border-[#464554]/30 bg-[#171f33]/60 p-1">
-          {(["script", "characters", "keyframes"] as StoryboardTab[]).map((tab) => {
+          {(["script", "characters", "keyframes", "videos"] as StoryboardTab[]).map((tab) => {
             const count =
-              tab === "script" ? snapshots.length : tab === "characters" ? characters.length : keyframes.length;
+              tab === "script"
+                ? snapshots.length
+                : tab === "characters"
+                  ? characters.length
+                  : tab === "keyframes"
+                    ? keyframes.length
+                    : videos.length;
             const active = storyboardTab === tab;
             return (
               <button
@@ -875,7 +1022,7 @@ export default function ChatPage() {
                     : "text-[#908fa0] hover:text-[#c7c4d7]"
                 }`}
               >
-                {tab === "script" ? "Versions" : tab === "characters" ? "Cast" : "Keyframes"}
+                {tab === "script" ? "Versions" : tab === "characters" ? "Cast" : tab === "keyframes" ? "Keyframes" : "Videos"}
                 {count > 0 && (
                   <span className={`ml-1 tabular-nums ${active ? "text-[#c0c1ff]" : "text-[#464554]"}`}>
                     {count}
@@ -961,10 +1108,40 @@ export default function ChatPage() {
       {storyboardTab === "script" && scriptTab}
       {storyboardTab === "characters" && charactersTab}
       {storyboardTab === "keyframes" && keyframesTab}
+      {storyboardTab === "videos" && videosTab}
     </div>
   );
 
   // ── Lightbox ───────────────────────────────────────────────────────────
+
+  const videoLightbox = selectedVideo && (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={() => setSelectedVideo(null)}
+    >
+      <div
+        className="max-w-2xl max-h-[80vh] rounded-xl overflow-hidden bg-zinc-900 border border-zinc-700"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <video
+          src={selectedVideo.uri}
+          className="max-w-full max-h-[70vh]"
+          controls
+          autoPlay
+          playsInline
+        />
+        <div className="px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-zinc-300">{selectedVideo.label}</span>
+          <button
+            onClick={() => setSelectedVideo(null)}
+            className="text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   const lightbox = selectedImage && (
     <div
@@ -1068,6 +1245,7 @@ export default function ChatPage() {
   return (
     <main className="flex h-screen flex-col bg-[#0b1326] text-[#dae2fd]">
       {lightbox}
+      {videoLightbox}
       {versionPickerModal}
 
       {/* Header */}

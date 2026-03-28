@@ -89,7 +89,9 @@ export function validateScriptVersionPayload(args: Record<string, unknown>): str
     if (!isPlainObject(s)) return "each scene must be an object";
     const sn = s.scene_number;
     if (typeof sn !== "number") return "each scene needs scene_number (number)";
-    if (typeof s.visual_description !== "string") return "each scene needs visual_description";
+    if (typeof s.action_description !== "string") return "each scene needs action_description";
+    if (typeof s.start_frame_description !== "string") return "each scene needs start_frame_description";
+    if (typeof s.end_frame_description !== "string") return "each scene needs end_frame_description";
   }
   for (const c of cast) {
     if (!isPlainObject(c)) return "each cast entry must be an object";

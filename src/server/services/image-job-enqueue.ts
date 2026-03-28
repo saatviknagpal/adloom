@@ -3,7 +3,12 @@ import {
   IMAGE_GENERATE_EVENT,
   type ImageGenerateEventData,
 } from "@/inngest/functions/generateImageJob";
+import {
+  VIDEO_GENERATE_EVENT,
+  type VideoGenerateEventData,
+} from "@/inngest/functions/generateVideoJob";
 import { generateImage } from "@/server/services/nano-banana";
+import { generateVideo } from "@/server/services/veo";
 import { completeAssetGeneration } from "@/server/services/session";
 
 const devInlineFallback =
@@ -24,6 +29,20 @@ export async function sendImageGenerationJob(data: ImageGenerateEventData): Prom
       err instanceof Error ? err.message : err,
     );
     const result = await generateImage(data.prompt, data.sessionId, data.referenceKeys, data.labeledRefs);
+    await completeAssetGeneration(data.assetId, { uri: result.uri });
+  }
+}
+
+export async function sendVideoGenerationJob(data: VideoGenerateEventData): Promise<void> {
+  try {
+    await inngest.send({ name: VIDEO_GENERATE_EVENT, data });
+  } catch (err) {
+    if (!devInlineFallback) throw err;
+    console.warn(
+      "[adloom] Inngest send failed — running video generation in-process.",
+      err instanceof Error ? err.message : err,
+    );
+    const result = await generateVideo(data.prompt, data.sessionId, data.startFrameKey, data.endFrameKey);
     await completeAssetGeneration(data.assetId, { uri: result.uri });
   }
 }

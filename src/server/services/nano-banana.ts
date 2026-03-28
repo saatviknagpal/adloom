@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { randomUUID } from "crypto";
 import { downloadBuffer, uploadBuffer } from "@/lib/storage";
 
-const MODEL = "gemini-2.5-flash-image";
+const MODEL = "gemini-3.1-flash-image-preview";
 
 function getClient(): GoogleGenAI {
   const key = process.env.GEMINI_API_KEY;
@@ -53,9 +53,40 @@ export async function generateImage(
   ];
 
   if (labeledRefs?.length) {
-    for (const ref of labeledRefs) {
-      contents.push({ text: `Reference image for character '${ref.label}':` });
-      contents.push(await objectToInlinePart(ref.key));
+    const characterRefs = labeledRefs.filter((r) => !r.label.startsWith("scene_"));
+    const sceneRefs = labeledRefs.filter((r) => r.label.startsWith("scene_"));
+
+    if (characterRefs.length) {
+      contents.push({
+        text: "IMPORTANT: The attached reference images show the exact characters to use in this scene. Reproduce their appearance faithfully — same face, hair, clothing, and build. Do not invent new character appearances.",
+      });
+      for (const ref of characterRefs) {
+        contents.push({ text: `Reference image for character '${ref.label}':` });
+        contents.push(await objectToInlinePart(ref.key));
+      }
+    }
+
+    const sameSceneRefs = sceneRefs.filter((r) => !r.label.startsWith("prev_"));
+    const crossSceneRefs = sceneRefs.filter((r) => r.label.startsWith("prev_"));
+
+    if (sameSceneRefs.length) {
+      contents.push({
+        text: "IMPORTANT: The attached scene reference shows the START frame for this scene. Generate an END frame with a clearly different camera angle or shot size (e.g. wide→close-up, over-shoulder→frontal). Maintain the same environment, lighting, and color palette, but make the camera move dramatic — not a subtle zoom.",
+      });
+      for (const ref of sameSceneRefs) {
+        contents.push({ text: `Start frame reference for '${ref.label}':` });
+        contents.push(await objectToInlinePart(ref.key));
+      }
+    }
+
+    if (crossSceneRefs.length) {
+      contents.push({
+        text: "CONTEXT: The attached image is the end frame of the PREVIOUS scene. Use it to maintain visual continuity across the scene transition — consistent lighting direction, color grade, and spatial relationships. This is a new scene, so the camera angle and composition should change, but the overall look should feel like a continuous sequence.",
+      });
+      for (const ref of crossSceneRefs) {
+        contents.push({ text: `Previous scene end frame for '${ref.label}':` });
+        contents.push(await objectToInlinePart(ref.key));
+      }
     }
   }
 
