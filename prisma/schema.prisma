@@ -51,6 +51,8 @@ model Asset {
   region           String?  // US | IN | CN — null for shared assets like product_image
   shotIndex        Int?     // which beat/shot this belongs to
   version          Int      @default(1)
+  groupKey         String?  // stable key across versions of a character (e.g. "barista")
+  selected         Boolean  @default(false) // user's chosen version within a group
   uri              String?  // null while generationStatus is pending
   generationStatus String   @default("ready") // pending | ready | failed
   generationError  String?

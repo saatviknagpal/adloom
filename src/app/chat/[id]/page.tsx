@@ -31,6 +31,9 @@ type CharacterAsset = {
   name: string;
   uri?: string;
   prompt: string;
+  groupKey: string;
+  version: number;
+  selected: boolean;
   pending?: boolean;
   failed?: boolean;
   error?: string;
@@ -65,11 +68,25 @@ export default function ChatPage() {
   const [productImage, setProductImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{ uri: string; label: string } | null>(null);
+  const [versionPickerGroup, setVersionPickerGroup] = useState<string | null>(null);
   const [nextStepsDismissed, setNextStepsDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isKeyframePhase = status === "script_approved" || status === "keyframes_review";
+
+  const characterGroups = (() => {
+    const groups: Record<string, CharacterAsset[]> = {};
+    for (const c of characters) {
+      const gk = c.groupKey || c.id;
+      if (!groups[gk]) groups[gk] = [];
+      groups[gk].push(c);
+    }
+    for (const gk of Object.keys(groups)) {
+      groups[gk].sort((a, b) => b.version - a.version);
+    }
+    return groups;
+  })();
 
   const fetchSnapshots = useCallback(async () => {
     const res = await fetch(`/api/sessions/${id}/snapshots`);
@@ -105,6 +122,9 @@ export default function ChatPage() {
                 uri: string | null;
                 prompt: string | null;
                 meta: string | null;
+                groupKey: string | null;
+                version: number;
+                selected: boolean;
                 generationStatus?: string;
                 generationError?: string | null;
               }) => ({
@@ -112,6 +132,9 @@ export default function ChatPage() {
                 name: a.meta ? JSON.parse(a.meta).name : "Character",
                 uri: a.uri ?? undefined,
                 prompt: a.prompt ?? "",
+                groupKey: a.groupKey ?? a.id,
+                version: a.version ?? 1,
+                selected: a.selected ?? false,
                 pending: a.generationStatus === "pending",
                 failed: a.generationStatus === "failed",
                 error: a.generationError ?? undefined,
@@ -225,6 +248,8 @@ export default function ChatPage() {
                 name: string;
                 prompt?: string;
                 uri?: string;
+                groupKey?: string;
+                version?: number;
                 pending?: boolean;
                 failed?: boolean;
                 error?: string;
@@ -232,12 +257,17 @@ export default function ChatPage() {
               setCharacters((prev) => {
                 const idx = prev.findIndex((x) => x.id === c.id);
                 const prevRow = idx >= 0 ? prev[idx] : undefined;
+                const gk = c.groupKey ?? prevRow?.groupKey ?? c.id;
+                const ver = c.version ?? prevRow?.version ?? 1;
                 let row: CharacterAsset;
                 if (c.pending === true) {
                   row = {
                     id: c.id,
                     name: c.name,
                     prompt: c.prompt ?? prevRow?.prompt ?? "",
+                    groupKey: gk,
+                    version: ver,
+                    selected: prevRow?.selected ?? true,
                     pending: true,
                     failed: false,
                   };
@@ -246,6 +276,9 @@ export default function ChatPage() {
                     id: c.id,
                     name: c.name,
                     prompt: c.prompt ?? prevRow?.prompt ?? "",
+                    groupKey: gk,
+                    version: ver,
+                    selected: prevRow?.selected ?? false,
                     failed: true,
                     pending: false,
                     error: c.error,
@@ -256,6 +289,9 @@ export default function ChatPage() {
                     name: c.name,
                     prompt: c.prompt ?? prevRow?.prompt ?? "",
                     uri: c.uri,
+                    groupKey: gk,
+                    version: ver,
+                    selected: prevRow?.selected ?? true,
                     pending: false,
                     failed: false,
                   };
@@ -346,6 +382,8 @@ export default function ChatPage() {
     setStreaming(false);
   }
 
+  const sendBootstrapRef = useRef(false);
+
   async function handleApprove() {
     setApproving(true);
     try {
@@ -355,6 +393,7 @@ export default function ChatPage() {
         setStatus("script_approved");
         setNextStepsDismissed(false);
         setActiveTab("chat");
+        sendBootstrapRef.current = true;
       } else if (data.error) {
         alert(`Approval failed: ${data.error}`);
       }
@@ -364,9 +403,140 @@ export default function ChatPage() {
     setApproving(false);
   }
 
+  useEffect(() => {
+    if (sendBootstrapRef.current && status === "script_approved" && !streaming) {
+      sendBootstrapRef.current = false;
+      setInput("Begin generating character reference images.");
+      setTimeout(() => {
+        const syntheticInput = "Begin generating character reference images.";
+        setInput("");
+        const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: syntheticInput };
+        setMessages((prev) => [...prev, userMsg]);
+        const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
+        setMessages((prev) => [...prev, assistantMsg]);
+        setStreaming(true);
+
+        (async () => {
+          try {
+            const res = await fetch(`/api/sessions/${id}/chat`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: syntheticInput }),
+            });
+            if (!res.ok || !res.body) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: "Error: request failed" } : m)),
+              );
+              setStreaming(false);
+              return;
+            }
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                try {
+                  const payload = JSON.parse(line.slice(6));
+                  if (payload.text) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantMsg.id ? { ...m, content: m.content + payload.text } : m,
+                      ),
+                    );
+                  }
+                  if (payload.character) {
+                    const c = payload.character as CharacterAsset & { pending?: boolean; failed?: boolean; error?: string };
+                    setCharacters((prev) => {
+                      const idx = prev.findIndex((x) => x.id === c.id);
+                      const prevRow = idx >= 0 ? prev[idx] : undefined;
+                      const gk = c.groupKey ?? prevRow?.groupKey ?? c.id;
+                      const ver = c.version ?? prevRow?.version ?? 1;
+                      const row: CharacterAsset = {
+                        id: c.id,
+                        name: c.name,
+                        prompt: c.prompt ?? prevRow?.prompt ?? "",
+                        uri: c.uri,
+                        groupKey: gk,
+                        version: ver,
+                        selected: prevRow?.selected ?? true,
+                        pending: c.pending ?? false,
+                        failed: c.failed ?? false,
+                        error: c.error,
+                      };
+                      if (idx === -1) return [...prev, row];
+                      const copy = [...prev];
+                      copy[idx] = row;
+                      return copy;
+                    });
+                    setStoryboardTab("characters");
+                  }
+                  if (payload.keyframe) {
+                    const k = payload.keyframe as KeyframeAsset & { pending?: boolean; failed?: boolean; error?: string };
+                    setKeyframes((prev) => {
+                      const idx = prev.findIndex((x) => x.id === k.id);
+                      const prevRow = idx >= 0 ? prev[idx] : undefined;
+                      const row: KeyframeAsset = {
+                        id: k.id,
+                        beatIndex: k.beatIndex,
+                        label: k.label,
+                        prompt: k.prompt ?? prevRow?.prompt ?? "",
+                        uri: k.uri,
+                        pending: k.pending ?? false,
+                        failed: k.failed ?? false,
+                        error: k.error,
+                      };
+                      if (idx === -1) return [...prev, row];
+                      const copy = [...prev];
+                      copy[idx] = row;
+                      return copy;
+                    });
+                    setStoryboardTab("keyframes");
+                  }
+                  if (payload.status) setStatus(payload.status);
+                  if (payload.error) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantMsg.id ? { ...m, content: m.content + `\n\nError: ${payload.error}` } : m,
+                      ),
+                    );
+                  }
+                } catch { /* skip malformed SSE */ }
+              }
+            }
+          } catch {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: m.content + "\n\nConnection lost." } : m)),
+            );
+          }
+          setStreaming(false);
+        })();
+      }, 100);
+    }
+  }, [status, streaming, id]);
+
   async function handleSelectSnapshot(snapshotId: string) {
     await fetch(`/api/sessions/${id}/snapshots/${snapshotId}/select`, { method: "POST" });
     setSnapshots((prev) => prev.map((s) => ({ ...s, selected: s.id === snapshotId })));
+  }
+
+  async function handleSelectCharacterVersion(groupKey: string, assetId: string) {
+    await fetch(`/api/sessions/${id}/characters/${encodeURIComponent(groupKey)}/select`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetId }),
+    });
+    setCharacters((prev) =>
+      prev.map((c) =>
+        c.groupKey === groupKey ? { ...c, selected: c.id === assetId } : c,
+      ),
+    );
+    setVersionPickerGroup(null);
   }
 
   async function handleUploadProduct(e: React.ChangeEvent<HTMLInputElement>) {
@@ -500,54 +670,74 @@ export default function ChatPage() {
     </div>
   );
 
-  const charactersTab = (
-    <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin">
-      {characters.length === 0 && (
-        <p className="text-xs text-zinc-600 text-center pt-8">
-          No characters yet. Start generating to see them here.
-        </p>
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        {characters.map((char) => (
-          <div
-            key={char.id}
-            className={`rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden transition ${
-              char.uri && !char.failed ? "cursor-pointer hover:border-zinc-600" : "cursor-default"
-            }`}
-            onClick={() => {
-              if (char.uri && !char.failed) setSelectedImage({ uri: char.uri, label: char.name });
-            }}
-          >
-            <div className="aspect-square bg-zinc-950 relative">
-              {char.pending && (
-                <div className="absolute inset-0 animate-pulse bg-zinc-800/80 flex items-center justify-center">
-                  <span className="text-[10px] text-zinc-500 px-2 text-center">Generating…</span>
+  const charactersTab = (() => {
+    const groupKeys = Object.keys(characterGroups);
+    return (
+      <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin">
+        {groupKeys.length === 0 && (
+          <p className="text-xs text-zinc-600 text-center pt-8">
+            No characters yet. Start generating to see them here.
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          {groupKeys.map((gk) => {
+            const versions = characterGroups[gk];
+            const display = versions.find((v) => v.selected) ?? versions[0];
+            if (!display) return null;
+            const totalVersions = versions.length;
+            return (
+              <div
+                key={gk}
+                className={`rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden transition ${
+                  display.uri && !display.failed ? "cursor-pointer hover:border-zinc-600" : "cursor-default"
+                }`}
+                onClick={() => {
+                  if (display.uri && !display.failed) setSelectedImage({ uri: display.uri, label: display.name });
+                }}
+              >
+                <div className="aspect-square bg-zinc-950 relative">
+                  {display.pending && (
+                    <div className="absolute inset-0 animate-pulse bg-zinc-800/80 flex items-center justify-center">
+                      <span className="text-[10px] text-zinc-500 px-2 text-center">Generating…</span>
+                    </div>
+                  )}
+                  {display.failed && (
+                    <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center p-2">
+                      <span className="text-[10px] text-red-400 text-center leading-snug">
+                        {display.error ?? "Failed"}
+                      </span>
+                    </div>
+                  )}
+                  {display.uri && !display.pending && !display.failed && (
+                    <img
+                      src={display.uri}
+                      alt={display.name}
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                  {totalVersions > 1 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setVersionPickerGroup(gk);
+                      }}
+                      className="absolute top-1.5 right-1.5 bg-black/70 text-[10px] text-zinc-300 px-1.5 py-0.5 rounded font-medium hover:bg-black/90 transition"
+                    >
+                      v{display.version} of {totalVersions}
+                    </button>
+                  )}
                 </div>
-              )}
-              {char.failed && (
-                <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center p-2">
-                  <span className="text-[10px] text-red-400 text-center leading-snug">
-                    {char.error ?? "Failed"}
-                  </span>
+                <div className="p-2">
+                  <p className="text-xs font-medium text-zinc-300 truncate">{display.name}</p>
+                  <p className="text-[10px] text-zinc-600 truncate mt-0.5">{display.prompt}</p>
                 </div>
-              )}
-              {char.uri && !char.pending && !char.failed && (
-                <img
-                  src={char.uri}
-                  alt={char.name}
-                  className="w-full h-full object-cover"
-                />
-              )}
-            </div>
-            <div className="p-2">
-              <p className="text-xs font-medium text-zinc-300 truncate">{char.name}</p>
-              <p className="text-[10px] text-zinc-600 truncate mt-0.5">{char.prompt}</p>
-            </div>
-          </div>
-        ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  })();
 
   const keyframesTab = (
     <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin">
@@ -696,11 +886,72 @@ export default function ChatPage() {
     </div>
   );
 
+  const versionPickerModal = versionPickerGroup && characterGroups[versionPickerGroup] && (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={() => setVersionPickerGroup(null)}
+    >
+      <div
+        className="w-full max-w-xl rounded-t-xl sm:rounded-xl bg-zinc-900 border border-zinc-700 p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-zinc-200">
+            Select version — {characterGroups[versionPickerGroup][0]?.name}
+          </h3>
+          <button
+            onClick={() => setVersionPickerGroup(null)}
+            className="text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            Close
+          </button>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
+          {characterGroups[versionPickerGroup]
+            .slice()
+            .sort((a, b) => a.version - b.version)
+            .map((v) => (
+              <button
+                key={v.id}
+                onClick={() => handleSelectCharacterVersion(versionPickerGroup!, v.id)}
+                className={`shrink-0 rounded-lg border overflow-hidden transition w-28 ${
+                  v.selected
+                    ? "border-indigo-500 ring-2 ring-indigo-500/40"
+                    : "border-zinc-700 hover:border-zinc-500"
+                }`}
+              >
+                <div className="aspect-square bg-zinc-950 relative">
+                  {v.uri && !v.failed ? (
+                    <img src={v.uri} alt={v.name} className="w-full h-full object-cover" />
+                  ) : v.failed ? (
+                    <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center">
+                      <span className="text-[10px] text-red-400">Failed</span>
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 animate-pulse bg-zinc-800/80 flex items-center justify-center">
+                      <span className="text-[10px] text-zinc-500">…</span>
+                    </div>
+                  )}
+                </div>
+                <div className="p-1.5 text-center">
+                  <span className="text-[10px] font-medium text-zinc-300">v{v.version}</span>
+                  {v.selected && (
+                    <span className="ml-1 text-[10px] bg-indigo-600 text-white px-1 py-0.5 rounded">Active</span>
+                  )}
+                </div>
+              </button>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+
   // ── Layout ──────────────────────────────────────────────────────────────
 
   return (
     <main className="flex h-screen flex-col">
       {lightbox}
+      {versionPickerModal}
 
       {/* Header */}
       <header className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950/80 px-4 py-2.5 backdrop-blur shrink-0">

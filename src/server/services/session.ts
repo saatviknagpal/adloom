@@ -137,6 +137,8 @@ export async function createPendingAsset(
     shotIndex?: number;
     prompt?: string;
     meta?: string;
+    groupKey?: string;
+    selected?: boolean;
   },
 ) {
   return prisma.asset.create({
@@ -149,6 +151,8 @@ export async function createPendingAsset(
       shotIndex: opts?.shotIndex,
       prompt: opts?.prompt,
       meta: opts?.meta,
+      groupKey: opts?.groupKey,
+      selected: opts?.selected ?? false,
     },
   });
 }
@@ -189,4 +193,90 @@ export async function getProductImage(sessionId: string) {
   return prisma.asset.findFirst({
     where: { sessionId, kind: "product_image" },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Character versioning helpers
+// ---------------------------------------------------------------------------
+
+export async function getCharacterGroups(sessionId: string) {
+  const assets = await prisma.asset.findMany({
+    where: { sessionId, kind: "character" },
+    orderBy: { version: "desc" },
+  });
+
+  const groups: Record<string, typeof assets> = {};
+  for (const a of assets) {
+    const key = a.groupKey ?? a.id;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(a);
+  }
+  return groups;
+}
+
+export async function createCharacterVersion(
+  sessionId: string,
+  groupKey: string,
+  prompt: string,
+  meta?: string,
+) {
+  const latest = await prisma.asset.findFirst({
+    where: { sessionId, kind: "character", groupKey },
+    orderBy: { version: "desc" },
+    select: { version: true },
+  });
+  const nextVersion = (latest?.version ?? 0) + 1;
+
+  return prisma.asset.create({
+    data: {
+      sessionId,
+      kind: "character",
+      uri: null,
+      generationStatus: "pending",
+      groupKey,
+      version: nextVersion,
+      prompt,
+      meta,
+      selected: false,
+    },
+  });
+}
+
+export async function resetAssetForRetry(assetId: string) {
+  return prisma.asset.update({
+    where: { id: assetId },
+    data: {
+      generationStatus: "pending",
+      generationError: null,
+      uri: null,
+    },
+  });
+}
+
+export async function selectCharacterVersion(
+  groupKey: string,
+  sessionId: string,
+  assetId: string,
+) {
+  await prisma.$transaction([
+    prisma.asset.updateMany({
+      where: { sessionId, kind: "character", groupKey },
+      data: { selected: false },
+    }),
+    prisma.asset.update({
+      where: { id: assetId },
+      data: { selected: true },
+    }),
+  ]);
+}
+
+export async function getSelectedCharacters(sessionId: string) {
+  const groups = await getCharacterGroups(sessionId);
+  const result: Awaited<ReturnType<typeof getAssetById>>[] = [];
+
+  for (const assets of Object.values(groups)) {
+    const selected = assets.find((a) => a.selected);
+    result.push(selected ?? assets[0] ?? null);
+  }
+  return result.filter(Boolean);
 }

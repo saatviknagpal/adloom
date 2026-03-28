@@ -64,12 +64,19 @@ You have two tools:
 2. generate_keyframe — create a keyframe (scene image) for a specific beat, optionally compositing characters and product.
 
 Workflow:
-1. Review the beat list and identify all distinct characters that appear.
-2. For each character, call generate_character with a detailed visual description. Be specific about age, appearance, clothing, expression, and pose. These reference images will be used for consistency across keyframes.
-3. Once all characters are generated, go through each beat and call generate_keyframe. Reference the character IDs returned from previous tool calls so the keyframe uses those character designs.
-4. Write image prompts that are concrete and cinematic — describe camera angle, lighting, composition, setting, and action. Think like an ad director, not a novelist.
+1. Review the beat list and the pipeline state block to see which characters still need generating.
+2. For each character not yet marked "ready", call generate_character with a detailed visual description. Be specific about age, appearance, clothing, expression, and pose.
+3. Once all characters are ready, go through each beat and call generate_keyframe.
+4. Write image prompts that are concrete and cinematic — describe camera angle, lighting, composition, setting, and action.
 
-Rules:
+Pipeline state rules:
+- A "== Pipeline State (authoritative) ==" block is appended to each message. It shows the current state of all characters.
+- Do NOT generate characters already marked "ready" unless the user explicitly asks for a regeneration.
+- When creating a NEW character, omit the "id" parameter from the tool call.
+- When REGENERATING an existing character, pass the "id" of the character to replace. This creates a new version.
+- Use the "groupKey" shown in the state block to reference characters.
+
+General rules:
 - Generate characters BEFORE keyframes so references are available.
 - Be specific and visual in your prompts. Avoid vague language.
 - Each keyframe prompt should be self-contained — include all visual details needed.
@@ -96,6 +103,11 @@ const GENERATE_CHARACTER_TOOL = {
           type: "string",
           description:
             "Detailed visual description for the character reference image. Include age, ethnicity, build, clothing, hairstyle, expression, pose, and background. Be specific and cinematic.",
+        },
+        id: {
+          type: "string",
+          description:
+            "Existing character asset ID. If provided, creates a new version of this character instead of a new character. Omit for brand-new characters.",
         },
       },
       required: ["name", "visualPrompt"],
@@ -166,6 +178,44 @@ Beat list:
 ${beats}
 
 Please begin by identifying the characters needed, generating their reference images, and then creating keyframes for each beat.`;
+}
+
+/**
+ * Build a compact state block from character groups for the agent loop.
+ * Only shows the latest version of each group.
+ */
+export function buildCharacterStateBlock(
+  charGroups: Record<string, { id: string; groupKey: string | null; version: number; uri: string | null; generationStatus: string; generationError: string | null; meta: string | null }[]>,
+): string {
+  const lines: string[] = ["== Pipeline State (authoritative) ==", "Characters:"];
+
+  const keys = Object.keys(charGroups);
+  if (keys.length === 0) {
+    lines.push("  (none yet — review the beat list and generate all needed characters)");
+    return lines.join("\n");
+  }
+
+  for (const gk of keys) {
+    const versions = charGroups[gk];
+    const latest = versions[0];
+    if (!latest) continue;
+
+    const name = latest.meta ? (() => { try { return JSON.parse(latest.meta).name; } catch { return gk; } })() : gk;
+    let statusStr: string;
+    if (latest.generationStatus === "ready" && latest.uri) {
+      statusStr = `ready (uri: ${latest.uri})`;
+    } else if (latest.generationStatus === "failed") {
+      statusStr = `failed (error: ${latest.generationError ?? "unknown"})`;
+    } else if (latest.generationStatus === "pending") {
+      statusStr = "pending";
+    } else {
+      statusStr = "not_started";
+    }
+
+    lines.push(`- [groupKey: "${gk}", id: "${latest.id}", version: ${latest.version}] "${name}" -- ${statusStr}`);
+  }
+
+  return lines.join("\n");
 }
 
 /**
