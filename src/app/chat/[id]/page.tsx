@@ -70,7 +70,6 @@ export default function ChatPage() {
   const [uploading, setUploading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{ uri: string; label: string } | null>(null);
   const [versionPickerGroup, setVersionPickerGroup] = useState<string | null>(null);
-  const [nextStepsDismissed, setNextStepsDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -392,7 +391,6 @@ export default function ChatPage() {
       const data = await res.json();
       if (data.status === "script_approved") {
         setStatus("script_approved");
-        setNextStepsDismissed(false);
         setActiveTab("chat");
         sendBootstrapRef.current = true;
       } else if (data.error) {
@@ -1030,46 +1028,6 @@ export default function ChatPage() {
         )}
       </header>
 
-      {isKeyframePhase && !nextStepsDismissed && (
-        <div className="shrink-0 border-b border-emerald-900/50 bg-emerald-950/25 px-4 py-3">
-          <div className="mx-auto flex max-w-4xl flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 space-y-1.5">
-              <p className="text-sm font-medium text-emerald-200">Script approved — production brief saved</p>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Your <span className="text-zinc-300">brief</span> (brand, product, creative direction, scenes, characters,
-                audio, localization) is stored for this session.
-              </p>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                You already went through brand, hook, and cast in the earlier chat. Those answers are in the brief—you
-                only need to repeat them if you want to change direction.
-              </p>
-              <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-1 pt-1">
-                <li>
-                  <span className="text-zinc-300">Chat:</span> Ask for{" "}
-                  <span className="text-zinc-300">character reference images</span>,{" "}
-                  <span className="text-zinc-300">keyframes</span> for specific beats, or both. The assistant pulls from
-                  your brief and calls Nano Banana when it needs images.
-                </li>
-                <li>
-                  <span className="text-zinc-300">Optional:</span> In Storyboard, add a product image so shots can match
-                  your packshot.
-                </li>
-                <li>
-                  <span className="text-zinc-300">Storyboard tabs:</span> Watch <span className="text-zinc-300">Characters</span>{" "}
-                  and <span className="text-zinc-300">Keyframes</span> as assets appear.
-                </li>
-              </ol>
-            </div>
-            <button
-              type="button"
-              onClick={() => setNextStepsDismissed(true)}
-              className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2 sm:pt-0.5"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Split pane */}
       <div className="flex flex-1 min-h-0">
