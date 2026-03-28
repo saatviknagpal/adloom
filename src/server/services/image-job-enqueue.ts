@@ -23,7 +23,7 @@ export async function sendImageGenerationJob(data: ImageGenerateEventData): Prom
       "[adloom] Inngest send failed — running image generation in-process. For queued jobs, run: npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest",
       err instanceof Error ? err.message : err,
     );
-    const result = await generateImage(data.prompt, data.sessionId, data.referenceKeys);
+    const result = await generateImage(data.prompt, data.sessionId, data.referenceKeys, data.labeledRefs);
     await completeAssetGeneration(data.assetId, { uri: result.uri });
   }
 }

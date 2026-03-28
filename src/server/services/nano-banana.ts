@@ -37,18 +37,27 @@ export async function objectToInlinePart(key: string) {
  *
  * @param prompt          Text prompt describing the image
  * @param sessionId       Used to namespace the object key
- * @param referenceKeys   Optional MinIO object keys to include as reference images
+ * @param referenceKeys   Optional MinIO object keys to include as unlabeled reference images
+ * @param labeledRefs     Optional labeled character references (interleaved text label + image)
  */
 export async function generateImage(
   prompt: string,
   sessionId: string,
   referenceKeys?: string[],
+  labeledRefs?: { key: string; label: string }[],
 ): Promise<GeneratedImage> {
   const ai = getClient();
 
   const contents: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
     { text: prompt },
   ];
+
+  if (labeledRefs?.length) {
+    for (const ref of labeledRefs) {
+      contents.push({ text: `Reference image for character '${ref.label}':` });
+      contents.push(await objectToInlinePart(ref.key));
+    }
+  }
 
   if (referenceKeys?.length) {
     for (const key of referenceKeys) {

@@ -65,7 +65,7 @@ You have two tools:
 
 Workflow:
 1. Review the beat list and the pipeline state block to see which characters still need generating.
-2. For each character not yet marked "ready", call generate_character with a detailed visual description. Be specific about age, appearance, clothing, expression, and pose.
+2. For each character not yet marked "ready", call generate_character with a detailed visual description. Be specific about age, appearance, clothing, expression, and pose. Character prompts MUST describe a frontal/front-facing view against a plain solid-color or transparent background with studio-style even lighting. Do NOT include environmental backgrounds — those belong in keyframes, not character references.
 3. Once ALL characters are generated, STOP making tool calls. Summarize the characters created and ask the user if they are satisfied with the results. If the user wants changes, regenerate as requested.
 4. Only proceed to keyframe generation (generate_keyframe) when the user explicitly confirms they are happy with the characters and gives permission to move on.
 5. Write image prompts that are concrete and cinematic — describe camera angle, lighting, composition, setting, and action.
@@ -103,7 +103,7 @@ const GENERATE_CHARACTER_TOOL = {
         visualPrompt: {
           type: "string",
           description:
-            "Detailed visual description for the character reference image. Include age, ethnicity, build, clothing, hairstyle, expression, pose, and background. Be specific and cinematic.",
+            "Detailed visual description for the character reference image. Include age, ethnicity, build, clothing, hairstyle, expression, and pose. MUST specify a frontal/front-facing pose against a plain solid-color or transparent background for compositing into keyframes. No environmental backgrounds.",
         },
         id: {
           type: "string",

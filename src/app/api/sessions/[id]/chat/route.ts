@@ -61,6 +61,7 @@ async function waitForImageAsset(
 
 const MAX_STEPS = 20;
 const MAX_RETRIES = 3;
+const CHARACTER_PROMPT_SUFFIX = " Front-facing view, centered subject, plain solid-color or transparent background, studio lighting. Full body or three-quarter shot suitable for compositing.";
 
 function toGroupKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -73,6 +74,7 @@ async function executeCharacterTool(
   retryCounts: Record<string, number>,
 ): Promise<{ groupKey: string; success: boolean; responseChunk: string }> {
   const groupKey = toGroupKey(args.name);
+  const prompt = args.visualPrompt + CHARACTER_PROMPT_SUFFIX;
 
   controller.enqueue(sseEncode({
     text: `\n\nGenerating character: ${args.name}...\n`,
@@ -83,10 +85,10 @@ async function executeCharacterTool(
     if (args.id) {
       const existing = await getAssetById(args.id);
       const gk = existing?.groupKey ?? groupKey;
-      asset = await createCharacterVersion(sessionId, gk, args.visualPrompt, JSON.stringify({ name: args.name }));
+      asset = await createCharacterVersion(sessionId, gk, prompt, JSON.stringify({ name: args.name }));
     } else {
       const raw = await createPendingAsset(sessionId, "character", {
-        prompt: args.visualPrompt,
+        prompt,
         meta: JSON.stringify({ name: args.name }),
         groupKey,
         selected: true,
@@ -103,7 +105,7 @@ async function executeCharacterTool(
     character: {
       id: asset.id,
       name: args.name,
-      prompt: args.visualPrompt,
+      prompt,
       groupKey: asset.groupKey ?? groupKey,
       version: asset.version,
       pending: true,
@@ -120,7 +122,7 @@ async function executeCharacterTool(
       await sendImageGenerationJob({
         assetId: asset.id,
         sessionId,
-        prompt: args.visualPrompt,
+        prompt,
       });
 
       const outcome = await waitForImageAsset(asset.id);
@@ -130,7 +132,7 @@ async function executeCharacterTool(
             id: asset.id,
             name: args.name,
             uri: outcome.uri,
-            prompt: args.visualPrompt,
+            prompt,
             groupKey: asset.groupKey ?? groupKey,
             version: asset.version,
             pending: false,
@@ -153,7 +155,7 @@ async function executeCharacterTool(
     character: {
       id: asset.id,
       name: args.name,
-      prompt: args.visualPrompt,
+      prompt,
       groupKey: asset.groupKey ?? groupKey,
       version: asset.version,
       pending: false,
@@ -237,13 +239,15 @@ async function handleKeyframeChat(
 
                 let pendingKeyframeId: string | null = null;
                 try {
+                  const labeledRefs: { key: string; label: string }[] = [];
                   const refKeys: string[] = [];
                   if (args.characterIds?.length) {
                     const charAssets = await getAssetsByKind(id, "character");
                     for (const charId of args.characterIds) {
                       const match = charAssets.find((a) => a.id === charId);
                       if (match?.generationStatus === "ready" && match.uri) {
-                        refKeys.push(extractKeyFromUri(match.uri));
+                        const name = match.meta ? JSON.parse(match.meta).name : "Character";
+                        labeledRefs.push({ key: extractKeyFromUri(match.uri), label: name });
                       }
                     }
                   }
@@ -268,6 +272,7 @@ async function handleKeyframeChat(
                     sessionId: id,
                     prompt: args.visualPrompt,
                     referenceKeys: refKeys.length > 0 ? refKeys : undefined,
+                    labeledRefs: labeledRefs.length > 0 ? labeledRefs : undefined,
                   });
 
                   const outcome = await waitForImageAsset(asset.id);
@@ -336,13 +341,15 @@ async function handleKeyframeChat(
 
               let pendingKeyframeId: string | null = null;
               try {
+                const labeledRefs: { key: string; label: string }[] = [];
                 const refKeys: string[] = [];
                 if (args.characterIds?.length) {
                   const charAssets = await getAssetsByKind(id, "character");
                   for (const charId of args.characterIds) {
                     const match = charAssets.find((a) => a.id === charId);
                     if (match?.generationStatus === "ready" && match.uri) {
-                      refKeys.push(extractKeyFromUri(match.uri));
+                      const name = match.meta ? JSON.parse(match.meta).name : "Character";
+                      labeledRefs.push({ key: extractKeyFromUri(match.uri), label: name });
                     }
                   }
                 }
@@ -367,6 +374,7 @@ async function handleKeyframeChat(
                   sessionId: id,
                   prompt: args.visualPrompt,
                   referenceKeys: refKeys.length > 0 ? refKeys : undefined,
+                  labeledRefs: labeledRefs.length > 0 ? labeledRefs : undefined,
                 });
 
                 const outcome = await waitForImageAsset(asset.id);

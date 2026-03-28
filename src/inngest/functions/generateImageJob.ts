@@ -9,6 +9,7 @@ export type ImageGenerateEventData = {
   sessionId: string;
   prompt: string;
   referenceKeys?: string[];
+  labeledRefs?: { key: string; label: string }[];
 };
 
 function getOriginalEventData(
@@ -31,10 +32,10 @@ export const generateImageJob = inngest.createFunction(
     },
   },
   async ({ event, step }) => {
-    const { assetId, sessionId, prompt, referenceKeys } = event.data as ImageGenerateEventData;
+    const { assetId, sessionId, prompt, referenceKeys, labeledRefs } = event.data as ImageGenerateEventData;
 
     const result = await step.run("nano-banana", async () => {
-      return generateImage(prompt, sessionId, referenceKeys);
+      return generateImage(prompt, sessionId, referenceKeys, labeledRefs);
     });
 
     await step.run("persist", async () => {
