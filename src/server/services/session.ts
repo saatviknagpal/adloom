@@ -6,6 +6,41 @@ export async function createSession() {
   return prisma.session.create({ data: { draftBrief: "{}" } });
 }
 
+export async function listSessions() {
+  return prisma.session.findMany({
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      draftBrief: true,
+      messages: {
+        where: { role: "user" },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+        select: { content: true },
+      },
+      _count: { select: { messages: true } },
+    },
+    take: 50,
+  });
+}
+
+export async function deleteSession(id: string) {
+  return prisma.session.delete({ where: { id } });
+}
+
+export async function clearSessionMessages(id: string) {
+  await prisma.message.deleteMany({ where: { sessionId: id } });
+  await prisma.asset.deleteMany({ where: { sessionId: id } });
+  await prisma.snapshot.deleteMany({ where: { sessionId: id } });
+  return prisma.session.update({
+    where: { id },
+    data: { status: "chatting", brief: null, beats: null, draftBrief: "{}" },
+  });
+}
+
 export async function mergeSessionDraftBrief(id: string, patch: Record<string, unknown>) {
   const row = await prisma.session.findUnique({ where: { id }, select: { draftBrief: true } });
   const base = parseJsonObject(row?.draftBrief);

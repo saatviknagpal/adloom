@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
@@ -77,6 +77,16 @@ type VideoAsset = {
 
 type StoryboardTab = "script" | "characters" | "keyframes" | "videos";
 type Locale = "US" | "IN" | "CN";
+
+type SessionSummary = {
+  id: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  draftBrief: string | null;
+  messages: { content: string }[];
+  _count: { messages: number };
+};
 
 const LOCALES: { key: Locale; label: string; flag: string; color: string }[] = [
   { key: "US", label: "United States", flag: "🇺🇸", color: "#c0c1ff" },
@@ -176,6 +186,10 @@ export default function ChatPage() {
   const [selectedVideo, setSelectedVideo] = useState<{ uri: string; label: string } | null>(null);
   const [versionPickerGroup, setVersionPickerGroup] = useState<string | null>(null);
   const [selectedLocales, setSelectedLocales] = useState<Set<Locale>>(new Set(["US", "IN", "CN"]));
+  const [showSessions, setShowSessions] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -591,6 +605,53 @@ export default function ChatPage() {
       }
       return next;
     });
+  }
+
+  async function fetchSessions() {
+    setSessionsLoading(true);
+    try {
+      const res = await fetch("/api/sessions");
+      if (res.ok) setSessions(await res.json());
+    } catch { /* ignore */ }
+    setSessionsLoading(false);
+  }
+
+  async function handleClearConversation() {
+    if (!confirm("Clear this conversation? All messages, characters, and keyframes will be deleted.")) return;
+    try {
+      const res = await fetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear" }),
+      });
+      if (res.ok) {
+        setMessages([]);
+        setSnapshots([]);
+        setCharacters([]);
+        setKeyframes([]);
+        setVideos([]);
+        setProductImage(null);
+        setStatus("chatting");
+        setExpandedSnap(null);
+        setStoryboardTab("script");
+      }
+    } catch {
+      alert("Failed to clear conversation");
+    }
+  }
+
+  async function handleNewSession() {
+    const res = await fetch("/api/sessions", { method: "POST" });
+    const data = (await res.json()) as { id: string };
+    router.push(`/chat/${data.id}`);
+  }
+
+  async function handleDeleteSession(sessionId: string) {
+    await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    if (sessionId === id) {
+      await handleNewSession();
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1282,6 +1343,40 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History button */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowSessions((p) => !p);
+              if (!showSessions) fetchSessions();
+            }}
+            className="shrink-0 rounded-lg border border-[#464554]/30 bg-[#171f33]/80 px-3 py-2 text-xs font-semibold text-[#c7c4d7] transition-all hover:bg-[#222a3d] hover:text-[#dae2fd]"
+            title="Previous sessions"
+          >
+            History
+          </button>
+
+          {/* Clear conversation */}
+          <button
+            type="button"
+            onClick={handleClearConversation}
+            disabled={streaming || messages.length === 0}
+            className="shrink-0 rounded-lg border border-[#464554]/30 bg-[#171f33]/80 px-3 py-2 text-xs font-semibold text-[#c7c4d7] transition-all hover:bg-[#ffb4ab]/10 hover:text-[#ffb4ab] hover:border-[#ffb4ab]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Clear this conversation"
+          >
+            Clear
+          </button>
+
+          {/* New session */}
+          <button
+            type="button"
+            onClick={handleNewSession}
+            className="shrink-0 rounded-lg border border-[#c0c1ff]/30 bg-[#c0c1ff]/10 px-3 py-2 text-xs font-semibold text-[#c0c1ff] transition-all hover:bg-[#c0c1ff]/20"
+            title="Start new session"
+          >
+            + New
+          </button>
+
           {/* Mobile tab switcher */}
           <div className="flex rounded-lg border border-[#464554]/30 bg-[#171f33]/80 p-0.5 md:hidden">
             <button
@@ -1319,6 +1414,98 @@ export default function ChatPage() {
           )}
         </div>
       </header>
+
+      {/* Sessions drawer */}
+      {showSessions && (
+        <div
+          className="absolute top-[57px] right-4 z-40 w-80 max-h-[70vh] overflow-y-auto rounded-xl border border-[#464554]/40 bg-[#171f33] shadow-2xl shadow-black/40 animate-fade-in-up scrollbar-thin"
+          style={{ animationDuration: "0.2s" }}
+        >
+          <div className="sticky top-0 flex items-center justify-between border-b border-[#464554]/30 bg-[#171f33] px-4 py-3">
+            <span className="text-xs font-semibold text-[#dae2fd]">Previous Sessions</span>
+            <button
+              type="button"
+              onClick={() => setShowSessions(false)}
+              className="text-[10px] font-semibold text-[#908fa0] hover:text-[#dae2fd] transition-colors"
+            >
+              Close
+            </button>
+          </div>
+          {sessionsLoading && (
+            <div className="px-4 py-6 text-center text-xs text-[#908fa0]">Loading...</div>
+          )}
+          {!sessionsLoading && sessions.length === 0 && (
+            <div className="px-4 py-6 text-center text-xs text-[#908fa0]">No sessions found.</div>
+          )}
+          {!sessionsLoading &&
+            sessions.map((s) => {
+              const isCurrent = s.id === id;
+              let label = "Untitled";
+              try {
+                if (s.draftBrief) {
+                  const b = JSON.parse(s.draftBrief) as {
+                    brand?: { name?: string };
+                    product?: { name?: string };
+                  };
+                  const parts = [b.brand?.name, b.product?.name].filter((v) => v && v.trim());
+                  if (parts.length) label = parts.join(" — ");
+                }
+              } catch {
+                /* keep default */
+              }
+              if (label === "Untitled" && s.messages[0]?.content) {
+                label =
+                  s.messages[0].content.length > 60
+                    ? s.messages[0].content.slice(0, 60) + "..."
+                    : s.messages[0].content;
+              }
+              return (
+                <div
+                  key={s.id}
+                  className={`group flex items-center gap-3 border-b border-[#464554]/15 px-4 py-3 transition-all ${
+                    isCurrent ? "bg-[#c0c1ff]/[0.06]" : "hover:bg-[#222a3d]/60 cursor-pointer"
+                  }`}
+                  onClick={() => {
+                    if (!isCurrent) {
+                      router.push(`/chat/${s.id}`);
+                      setShowSessions(false);
+                    }
+                  }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-xs font-medium text-[#dae2fd] truncate">{label}</p>
+                      {isCurrent && (
+                        <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-[#c0c1ff] bg-[#c0c1ff]/10 px-1.5 py-0.5 rounded">
+                          Current
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-[#908fa0]">
+                      <span className="capitalize">{s.status.replace(/_/g, " ")}</span>
+                      <span>&middot;</span>
+                      <span>{s._count.messages} msgs</span>
+                      <span>&middot;</span>
+                      <span>{new Date(s.updatedAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  {!isCurrent && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm("Delete this session?")) handleDeleteSession(s.id);
+                      }}
+                      className="shrink-0 rounded px-1.5 py-1 text-[10px] text-[#908fa0] opacity-0 group-hover:opacity-100 hover:text-[#ffb4ab] hover:bg-[#ffb4ab]/10 transition-all"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
 
       {/* Main split */}
       <div className="flex min-h-0 flex-1">

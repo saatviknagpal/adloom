@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSession } from "@/server/services/session";
+import { createSession, listSessions } from "@/server/services/session";
+
+export async function GET() {
+  const sessions = await listSessions();
+  return NextResponse.json(sessions);
+}
 
 export async function POST() {
   const session = await createSession();
