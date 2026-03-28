@@ -8,8 +8,7 @@ export type VideoGenerateEventData = {
   assetId: string;
   sessionId: string;
   prompt: string;
-  startFrameKey: string;
-  endFrameKey: string;
+  referenceKeys?: string[];
 };
 
 function getOriginalEventData(
@@ -32,11 +31,11 @@ export const generateVideoJob = inngest.createFunction(
     },
   },
   async ({ event, step }) => {
-    const { assetId, sessionId, prompt, startFrameKey, endFrameKey } =
+    const { assetId, sessionId, prompt, referenceKeys } =
       event.data as VideoGenerateEventData;
 
     const result = await step.run("veo", async () => {
-      return generateVideo(prompt, sessionId, startFrameKey, endFrameKey);
+      return generateVideo(prompt, sessionId, referenceKeys);
     });
 
     await step.run("persist", async () => {

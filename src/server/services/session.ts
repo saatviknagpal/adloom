@@ -238,6 +238,13 @@ export async function getAssetsByKind(sessionId: string, kind: string) {
   });
 }
 
+export async function getAssetsByKindAndRegion(sessionId: string, kind: string, region: string) {
+  return prisma.asset.findMany({
+    where: { sessionId, kind, region },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
 export async function getProductImage(sessionId: string) {
   return prisma.asset.findFirst({
     where: { sessionId, kind: "product_image" },

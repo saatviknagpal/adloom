@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type VideoGenerationReferenceImage } from "@google/genai";
 import { randomUUID } from "crypto";
 import { readFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
@@ -21,33 +21,36 @@ export type GeneratedVideo = {
 };
 
 /**
- * Generate a video clip using Veo with start/end frame interpolation.
+ * Generate a video clip using Veo with optional character/product reference images (up to 3).
  *
- * @param prompt          Text prompt describing the action and camera movement
- * @param sessionId       Used to namespace the object key in MinIO
- * @param startFrameKey   MinIO object key for the start frame image
- * @param endFrameKey     MinIO object key for the end frame image
+ * @param prompt            Text prompt describing the action, camera movement, dialogue
+ * @param sessionId         Used to namespace the object key in MinIO
+ * @param referenceKeys     MinIO object keys for reference images (character refs, product, etc.) — max 3
  */
 export async function generateVideo(
   prompt: string,
   sessionId: string,
-  startFrameKey: string,
-  endFrameKey: string,
+  referenceKeys?: string[],
 ): Promise<GeneratedVideo> {
   const ai = getClient();
 
-  const startBuffer = await downloadBuffer(startFrameKey);
-  const endBuffer = await downloadBuffer(endFrameKey);
+  const referenceImages: VideoGenerationReferenceImage[] = [];
 
-  const startBase64 = startBuffer.toString("base64");
-  const endBase64 = endBuffer.toString("base64");
+  if (referenceKeys?.length) {
+    for (const key of referenceKeys.slice(0, 3)) {
+      const buf = await downloadBuffer(key);
+      referenceImages.push({
+        image: { imageBytes: buf.toString("base64"), mimeType: "image/png" },
+        referenceType: "ASSET",
+      } as VideoGenerationReferenceImage);
+    }
+  }
 
   let operation = await ai.models.generateVideos({
     model: VEO_MODEL,
     prompt,
-    image: { imageBytes: startBase64, mimeType: "image/png" },
     config: {
-      lastFrame: { imageBytes: endBase64, mimeType: "image/png" },
+      ...(referenceImages.length > 0 ? { referenceImages } : {}),
     },
   });
 
@@ -60,9 +63,15 @@ export async function generateVideo(
     operation = await ai.operations.getVideosOperation({ operation });
   }
 
+  const opError = (operation as any).error;
+  if (opError) {
+    const errMsg = typeof opError.message === "string" ? opError.message : JSON.stringify(opError);
+    throw new Error(`Veo error (code ${opError.code ?? "unknown"}): ${errMsg}`);
+  }
+
   const generated = operation.response?.generatedVideos?.[0];
   if (!generated?.video) {
-    throw new Error("Veo returned no video");
+    throw new Error("Veo returned no video — response was empty");
   }
 
   const video = generated.video;

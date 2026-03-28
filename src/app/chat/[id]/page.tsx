@@ -48,18 +48,8 @@ type CharacterAsset = {
   prompt: string;
   groupKey: string;
   version: number;
+  locale?: string;
   selected: boolean;
-  pending?: boolean;
-  failed?: boolean;
-  error?: string;
-};
-
-type KeyframeAsset = {
-  id: string;
-  beatIndex: number;
-  label: string;
-  uri?: string;
-  prompt: string;
   pending?: boolean;
   failed?: boolean;
   error?: string;
@@ -70,12 +60,13 @@ type VideoAsset = {
   sceneIndex: number;
   uri?: string;
   prompt: string;
+  locale?: string;
   pending?: boolean;
   failed?: boolean;
   error?: string;
 };
 
-type StoryboardTab = "script" | "characters" | "keyframes" | "videos";
+type StoryboardTab = "script" | "characters" | "videos";
 type Locale = "US" | "IN" | "CN";
 
 type SessionSummary = {
@@ -100,11 +91,10 @@ type SSEPayload = {
   text?: string;
   snapshot?: { id: string; version: number; label: string; content: Record<string, unknown> };
   character?: CharacterAsset & { pending?: boolean; failed?: boolean; error?: string };
-  keyframe?: KeyframeAsset & { pending?: boolean; failed?: boolean; error?: string };
-  video?: VideoAsset & { pending?: boolean; failed?: boolean; error?: string };
+  video?: VideoAsset & { pending?: boolean; failed?: boolean; error?: string; locale?: string };
+  finalVideo?: { id: string; uri?: string; locale?: string; pending?: boolean };
   status?: string;
   error?: string;
-  draftUpdated?: boolean;
   done?: boolean;
 };
 
@@ -175,8 +165,11 @@ export default function ChatPage() {
   const [approving, setApproving] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [characters, setCharacters] = useState<CharacterAsset[]>([]);
-  const [keyframes, setKeyframes] = useState<KeyframeAsset[]>([]);
   const [videos, setVideos] = useState<VideoAsset[]>([]);
+  const [finalVideos, setFinalVideos] = useState<Record<string, string>>({});
+  const [finalVideoLoading, setFinalVideoLoading] = useState<Set<string>>(new Set());
+  const [videoLocaleFilter, setVideoLocaleFilter] = useState<string>("US");
+  const [charLocaleFilter, setCharLocaleFilter] = useState<string>("US");
   const [expandedSnap, setExpandedSnap] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "storyboard">("chat");
   const [storyboardTab, setStoryboardTab] = useState<StoryboardTab>("script");
@@ -190,11 +183,12 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const router = useRouter();
+  const [localesConfirmed, setLocalesConfirmed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const isKeyframePhase = status === "script_approved" || status === "keyframes_review";
+  const isProductionPhase = status === "script_approved" || status === "keyframes_review";
 
   const characterGroups = (() => {
     const groups: Record<string, CharacterAsset[]> = {};
@@ -251,6 +245,7 @@ export default function ChatPage() {
           uri: c.uri,
           groupKey: gk,
           version: ver,
+          locale: c.locale ?? prevRow?.locale ?? "US",
           selected: prevRow?.selected ?? true,
           pending: c.pending ?? false,
           failed: c.failed ?? false,
@@ -262,29 +257,7 @@ export default function ChatPage() {
         return copy;
       });
       setStoryboardTab("characters");
-    }
-
-    if (payload.keyframe) {
-      const k = payload.keyframe;
-      setKeyframes((prev) => {
-        const idx = prev.findIndex((x) => x.id === k.id);
-        const prevRow = idx >= 0 ? prev[idx] : undefined;
-        const row: KeyframeAsset = {
-          id: k.id,
-          beatIndex: k.beatIndex,
-          label: k.label,
-          prompt: k.prompt ?? prevRow?.prompt ?? "",
-          uri: k.uri,
-          pending: k.pending ?? false,
-          failed: k.failed ?? false,
-          error: k.error,
-        };
-        if (idx === -1) return [...prev, row];
-        const copy = [...prev];
-        copy[idx] = row;
-        return copy;
-      });
-      setStoryboardTab("keyframes");
+      if (c.locale) setCharLocaleFilter(c.locale);
     }
 
     if (payload.video) {
@@ -297,6 +270,7 @@ export default function ChatPage() {
           sceneIndex: v.sceneIndex,
           prompt: v.prompt ?? prevRow?.prompt ?? "",
           uri: v.uri,
+          locale: v.locale ?? prevRow?.locale ?? "US",
           pending: v.pending ?? false,
           failed: v.failed ?? false,
           error: v.error,
@@ -307,6 +281,23 @@ export default function ChatPage() {
         return copy;
       });
       setStoryboardTab("videos");
+      if (v.locale) setVideoLocaleFilter(v.locale);
+    }
+
+    if (payload.finalVideo) {
+      const locale = payload.finalVideo.locale ?? "US";
+      if (payload.finalVideo.pending) {
+        setFinalVideoLoading((prev) => new Set(prev).add(locale));
+      } else if (payload.finalVideo.uri) {
+        setFinalVideos((prev) => ({ ...prev, [locale]: payload.finalVideo!.uri! }));
+        setFinalVideoLoading((prev) => {
+          const next = new Set(prev);
+          next.delete(locale);
+          return next;
+        });
+        setStoryboardTab("videos");
+        setVideoLocaleFilter(locale);
+      }
     }
 
     if (payload.status) setStatus(payload.status);
@@ -337,6 +328,17 @@ export default function ChatPage() {
       buffer = remaining;
       for (const p of payloads) handleSSEPayload(p, assistantMsgId);
     }
+    if (buffer.trim()) {
+      const { payloads } = parseSSELines(buffer + "\n\n");
+      for (const p of payloads) handleSSEPayload(p, assistantMsgId);
+    }
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === assistantMsgId && !m.content
+          ? { ...m, content: "Working on it..." }
+          : m,
+      ),
+    );
   }
 
   // ── Data fetching ──────────────────────────────────────────────────────
@@ -373,6 +375,7 @@ export default function ChatPage() {
                 prompt: string | null;
                 meta: string | null;
                 groupKey: string | null;
+                region: string | null;
                 version: number;
                 selected: boolean;
                 generationStatus?: string;
@@ -387,6 +390,7 @@ export default function ChatPage() {
                   prompt: a.prompt ?? "",
                   groupKey: a.groupKey ?? a.id,
                   version: a.version ?? 1,
+                  locale: a.region ?? "US",
                   selected: a.selected ?? false,
                   pending: a.generationStatus === "pending",
                   failed: a.generationStatus === "failed",
@@ -395,34 +399,6 @@ export default function ChatPage() {
               },
             );
           setCharacters(chars);
-
-          const kfs = data.assets
-            .filter((a: { kind: string }) => a.kind === "keyframe")
-            .map(
-              (a: {
-                id: string;
-                uri: string | null;
-                prompt: string | null;
-                meta: string | null;
-                shotIndex: number | null;
-                generationStatus?: string;
-                generationError?: string | null;
-              }) => {
-                let label = "Keyframe";
-                try { if (a.meta) label = JSON.parse(a.meta).label; } catch { /* keep default */ }
-                return {
-                  id: a.id,
-                  beatIndex: a.shotIndex ?? 0,
-                  label,
-                  uri: a.uri ?? undefined,
-                  prompt: a.prompt ?? "",
-                  pending: a.generationStatus === "pending",
-                  failed: a.generationStatus === "failed",
-                  error: a.generationError ?? undefined,
-                };
-              },
-            );
-          setKeyframes(kfs);
 
           const vids = data.assets
             .filter((a: { kind: string }) => a.kind === "video")
@@ -433,6 +409,7 @@ export default function ChatPage() {
                 prompt: string | null;
                 meta: string | null;
                 shotIndex: number | null;
+                region: string | null;
                 generationStatus?: string;
                 generationError?: string | null;
               }) => ({
@@ -440,6 +417,7 @@ export default function ChatPage() {
                 sceneIndex: a.shotIndex ?? 0,
                 uri: a.uri ?? undefined,
                 prompt: a.prompt ?? "",
+                locale: a.region ?? "US",
                 pending: a.generationStatus === "pending",
                 failed: a.generationStatus === "failed",
                 error: a.generationError ?? undefined,
@@ -447,8 +425,24 @@ export default function ChatPage() {
             );
           setVideos(vids);
 
+          const finalVids = data.assets.filter((a: { kind: string; generationStatus?: string; uri?: string | null; region?: string | null }) =>
+            a.kind === "final_video" && a.generationStatus === "ready" && a.uri
+          );
+          if (finalVids.length > 0) {
+            const map: Record<string, string> = {};
+            for (const fv of finalVids) {
+              const locale = fv.region ?? "US";
+              map[locale] = fv.uri!;
+            }
+            setFinalVideos(map);
+          }
+
           const prod = data.assets.find((a: { kind: string }) => a.kind === "product_image");
           if (prod?.uri) setProductImage(prod.uri);
+
+          if (chars.length > 0 || vids.length > 0) {
+            setLocalesConfirmed(true);
+          }
         }
       });
   }, [id]);
@@ -482,7 +476,7 @@ export default function ChatPage() {
       const res = await fetch(`/api/sessions/${id}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, locales: Array.from(selectedLocales) }),
       });
       if (!res.ok || !res.body) {
         setMessages((prev) =>
@@ -512,8 +506,17 @@ export default function ChatPage() {
       const data = await res.json();
       if (data.status === "script_approved") {
         setStatus("script_approved");
-        setActiveTab("chat");
-        sendBootstrapRef.current = true;
+        setActiveTab("storyboard");
+        setStoryboardTab("characters");
+        setLocalesConfirmed(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "Script approved! Select your target markets in the storyboard panel and hit **Start Generation** to begin.",
+          },
+        ]);
       } else if (data.error) {
         alert(`Approval failed: ${data.error}`);
       }
@@ -523,12 +526,18 @@ export default function ChatPage() {
     setApproving(false);
   }
 
+  function handleConfirmLocalesAndStart() {
+    setLocalesConfirmed(true);
+    sendBootstrapRef.current = true;
+  }
+
   useEffect(() => {
-    if (!sendBootstrapRef.current || status !== "script_approved" || streaming) return;
+    if (!sendBootstrapRef.current || status !== "script_approved" || streaming || !localesConfirmed) return;
     sendBootstrapRef.current = false;
 
-    const syntheticInput = "Begin generating character reference images.";
+    const syntheticInput = "Begin generating character reference images for all selected markets.";
     setInput("");
+    setActiveTab("chat");
     const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: syntheticInput };
     const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -539,7 +548,7 @@ export default function ChatPage() {
         const res = await fetch(`/api/sessions/${id}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: syntheticInput }),
+          body: JSON.stringify({ message: syntheticInput, locales: Array.from(selectedLocales) }),
         });
         if (!res.ok || !res.body) {
           setMessages((prev) =>
@@ -557,7 +566,7 @@ export default function ChatPage() {
       }
       setStreaming(false);
     })();
-  }, [status, streaming, id]);
+  }, [status, streaming, id, selectedLocales, localesConfirmed]);
 
   // ── Actions ────────────────────────────────────────────────────────────
 
@@ -684,11 +693,11 @@ export default function ChatPage() {
                 <span className="text-[#c0c1ff] text-xl">&#9998;</span>
               </div>
               <p className="text-xs font-medium uppercase tracking-wider text-[#908fa0] mb-2">
-                {isKeyframePhase ? "Visual Production" : "Start here"}
+                {isProductionPhase ? "Visual Production" : "Start here"}
               </p>
               <p className="text-sm leading-relaxed text-[#c7c4d7]">
-                {isKeyframePhase
-                  ? "Your script is approved. Ask for character reference images, keyframes for each scene, or tweaks to a look."
+                {isProductionPhase
+                  ? "Your script is approved. Ask for character reference images, generate scene videos, or tweak the look."
                   : "Describe your brand, product, and ad concept. I'll help you build a brief with scenes and characters for three markets."}
               </p>
             </div>
@@ -859,9 +868,54 @@ export default function ChatPage() {
   // ── Storyboard: Characters tab ─────────────────────────────────────────
 
   const charactersTab = (() => {
-    const groupKeys = Object.keys(characterGroups);
+    const activeLocales = LOCALES.filter((l) => selectedLocales.has(l.key));
+    const filteredCharacters = characters.filter((c) => (c.locale ?? "US") === charLocaleFilter);
+
+    const filteredGroups: Record<string, CharacterAsset[]> = {};
+    for (const c of filteredCharacters) {
+      const gk = c.groupKey || c.id;
+      if (!filteredGroups[gk]) filteredGroups[gk] = [];
+      filteredGroups[gk].push(c);
+    }
+    for (const gk of Object.keys(filteredGroups)) {
+      filteredGroups[gk].sort((a, b) => b.version - a.version);
+    }
+
+    const groupKeys = Object.keys(filteredGroups);
     return (
       <div className="flex-1 overflow-y-auto px-4 py-4 md:px-5 scrollbar-thin">
+        {/* Country tabs */}
+        {activeLocales.length > 1 && (
+          <div className="flex mb-4 border-b border-[#464554]/30">
+            {activeLocales.map((l) => {
+              const active = l.key === charLocaleFilter;
+              const localeChars = characters.filter((c) => (c.locale ?? "US") === l.key);
+              const readyCount = localeChars.filter((c) => c.uri && !c.pending && !c.failed).length;
+              return (
+                <button
+                  key={l.key}
+                  type="button"
+                  onClick={() => setCharLocaleFilter(l.key)}
+                  className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition-all duration-200 border-b-2 -mb-px ${
+                    active
+                      ? "border-current text-[#dae2fd]"
+                      : "border-transparent text-[#908fa0] hover:text-[#c7c4d7]"
+                  }`}
+                  style={active ? { color: l.color, borderColor: l.color } : {}}
+                >
+                  <span className="text-sm">{l.flag}</span>
+                  <span>{l.label}</span>
+                  {readyCount > 0 && (
+                    <span className={`ml-0.5 text-[10px] tabular-nums ${active ? "opacity-70" : "opacity-50"}`}>
+                      {readyCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {groupKeys.length === 0 && (
           <div className="animate-fade-in-up mx-auto mt-10 max-w-xs rounded-xl border border-[#464554]/30 bg-[#171f33]/40 px-4 py-8 text-center">
             <div className="mx-auto mb-3 w-10 h-10 rounded-lg bg-[#d0bcff]/10 flex items-center justify-center">
@@ -874,7 +928,7 @@ export default function ChatPage() {
         )}
         <div className="grid grid-cols-2 gap-4">
           {groupKeys.map((gk) => {
-            const versions = characterGroups[gk];
+            const versions = filteredGroups[gk];
             const display = versions.find((v) => v.selected) ?? versions[0];
             if (!display) return null;
             const totalVersions = versions.length;
@@ -932,128 +986,160 @@ export default function ChatPage() {
     );
   })();
 
-  // ── Storyboard: Keyframes tab ──────────────────────────────────────────
-
-  const keyframesTab = (
-    <div className="flex-1 overflow-y-auto px-4 py-4 md:px-5 scrollbar-thin">
-      {keyframes.length === 0 && (
-        <div className="animate-fade-in-up mx-auto mt-10 max-w-xs rounded-xl border border-[#464554]/30 bg-[#171f33]/40 px-4 py-8 text-center">
-          <div className="mx-auto mb-3 w-10 h-10 rounded-lg bg-[#ffb783]/10 flex items-center justify-center">
-            <span className="text-[#ffb783]">&#127916;</span>
-          </div>
-          <p className="text-xs text-[#908fa0] leading-relaxed">
-            No keyframes yet. After characters are ready, ask the assistant to generate scene images.
-          </p>
-        </div>
-      )}
-      <div className="space-y-4">
-        {keyframes.map((kf) => (
-          <div
-            key={kf.id}
-            className={`rounded-xl border border-[#464554]/30 bg-[#171f33]/60 overflow-hidden shadow-sm transition-all duration-300 hover:border-[#464554]/60 hover:shadow-lg ${
-              kf.uri && !kf.failed ? "cursor-pointer group" : "cursor-default"
-            }`}
-            onClick={() => {
-              if (kf.uri && !kf.failed) setSelectedImage({ uri: kf.uri, label: kf.label });
-            }}
-          >
-            <div className="aspect-video bg-[#060e20] relative overflow-hidden">
-              {kf.pending && (
-                <div className="absolute inset-0 animate-shimmer flex items-center justify-center">
-                  <span className="text-[10px] text-[#908fa0] px-2 text-center">Generating&hellip;</span>
-                </div>
-              )}
-              {kf.failed && (
-                <div className="absolute inset-0 bg-[#171f33] flex items-center justify-center p-2">
-                  <span className="text-[10px] text-[#ffb4ab] text-center leading-snug">
-                    {kf.error ?? "Failed"}
-                  </span>
-                </div>
-              )}
-              {kf.uri && !kf.pending && !kf.failed && (
-                <img
-                  src={kf.uri}
-                  alt={kf.label}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-              )}
-            </div>
-            <div className="border-t border-[#464554]/20 p-3">
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="rounded-md bg-[#c0c1ff]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0c1ff]">
-                  Scene {kf.beatIndex}
-                </span>
-                <span className="text-xs font-medium text-[#dae2fd]">{kf.label}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
   // ── Storyboard: Videos tab ──────────────────────────────────────────────
 
-  const videosTab = (
-    <div className="flex-1 overflow-y-auto px-4 py-4 md:px-5 scrollbar-thin">
-      {videos.length === 0 && (
-        <div className="animate-fade-in-up mx-auto mt-10 max-w-xs rounded-xl border border-[#464554]/30 bg-[#171f33]/40 px-4 py-8 text-center">
-          <div className="mx-auto mb-3 w-10 h-10 rounded-lg bg-[#c0c1ff]/10 flex items-center justify-center">
-            <span className="text-[#c0c1ff]">&#127910;</span>
+  const videosTab = (() => {
+    const activeLocales = LOCALES.filter((l) => selectedLocales.has(l.key));
+    const currentLocale = videoLocaleFilter;
+    const filteredVideos = videos.filter((v) => (v.locale ?? "US") === currentLocale);
+    const currentFinalUri = finalVideos[currentLocale];
+    const currentFinalLoading = finalVideoLoading.has(currentLocale);
+    const localeInfo = LOCALES.find((l) => l.key === currentLocale);
+
+    return (
+      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-5 scrollbar-thin">
+        {/* Country tabs */}
+        {activeLocales.length > 1 && (
+          <div className="flex mb-4 border-b border-[#464554]/30">
+            {activeLocales.map((l) => {
+              const active = l.key === currentLocale;
+              const hasFinal = !!finalVideos[l.key];
+              const isStitching = finalVideoLoading.has(l.key);
+              return (
+                <button
+                  key={l.key}
+                  type="button"
+                  onClick={() => setVideoLocaleFilter(l.key)}
+                  className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition-all duration-200 border-b-2 -mb-px ${
+                    active
+                      ? "border-current text-[#dae2fd]"
+                      : "border-transparent text-[#908fa0] hover:text-[#c7c4d7]"
+                  }`}
+                  style={active ? { color: l.color, borderColor: l.color } : {}}
+                >
+                  <span className="text-sm">{l.flag}</span>
+                  <span>{l.label}</span>
+                  {hasFinal && <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                  {isStitching && !hasFinal && <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
+                </button>
+              );
+            })}
           </div>
-          <p className="text-xs text-[#908fa0] leading-relaxed">
-            No videos yet. Approve keyframes and confirm video generation to see them here.
-          </p>
-        </div>
-      )}
-      <div className="space-y-4">
-        {videos.map((vid) => (
-          <div
-            key={vid.id}
-            className={`rounded-xl border border-[#464554]/30 bg-[#171f33]/60 overflow-hidden shadow-sm transition-all duration-300 hover:border-[#464554]/60 hover:shadow-lg ${
-              vid.uri && !vid.failed ? "cursor-pointer group" : "cursor-default"
-            }`}
-            onClick={() => {
-              if (vid.uri && !vid.failed) setSelectedVideo({ uri: vid.uri, label: `Scene ${vid.sceneIndex}` });
-            }}
-          >
-            <div className="aspect-video bg-[#060e20] relative overflow-hidden">
-              {vid.pending && (
-                <div className="absolute inset-0 animate-shimmer flex items-center justify-center">
-                  <span className="text-[10px] text-[#908fa0] px-2 text-center">Generating video&hellip;</span>
-                </div>
-              )}
-              {vid.failed && (
-                <div className="absolute inset-0 bg-[#171f33] flex items-center justify-center p-2">
-                  <span className="text-[10px] text-[#ffb4ab] text-center leading-snug">
-                    {vid.error ?? "Failed"}
+        )}
+
+        {filteredVideos.length === 0 && !currentFinalUri && !currentFinalLoading && (
+          <div className="animate-fade-in-up mx-auto mt-10 max-w-xs rounded-xl border border-[#464554]/30 bg-[#171f33]/40 px-4 py-8 text-center">
+            <div className="mx-auto mb-3 w-10 h-10 rounded-lg bg-[#c0c1ff]/10 flex items-center justify-center">
+              <span className="text-[#c0c1ff]">&#127910;</span>
+            </div>
+            <p className="text-xs text-[#908fa0] leading-relaxed">
+              No videos yet. Approve characters and confirm video generation to see them here.
+            </p>
+          </div>
+        )}
+
+        {/* Final stitched video */}
+        {(currentFinalUri || currentFinalLoading) && (
+          <div className="mb-5 animate-fade-in-up">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#908fa0] mb-2">
+              Final Ad {localeInfo ? `${localeInfo.flag} ${localeInfo.key}` : currentLocale}
+            </p>
+            <div
+              className={`rounded-xl border overflow-hidden shadow-lg transition-all duration-300 ${
+                currentFinalUri
+                  ? "border-[#c0c1ff]/40 bg-[#171f33]/80 ring-1 ring-[#c0c1ff]/20 cursor-pointer"
+                  : "border-[#464554]/30 bg-[#171f33]/60"
+              }`}
+              onClick={() => {
+                if (currentFinalUri) setSelectedVideo({ uri: currentFinalUri, label: `Final Ad (${currentLocale})` });
+              }}
+            >
+              <div className="aspect-video bg-[#060e20] relative overflow-hidden">
+                {currentFinalLoading && !currentFinalUri && (
+                  <div className="absolute inset-0 animate-shimmer flex items-center justify-center">
+                    <span className="text-xs text-[#908fa0] px-3 text-center">Stitching {currentLocale} scenes&hellip;</span>
+                  </div>
+                )}
+                {currentFinalUri && (
+                  <video
+                    src={currentFinalUri}
+                    className="w-full h-full object-cover"
+                    muted
+                    loop
+                    autoPlay
+                    playsInline
+                  />
+                )}
+              </div>
+              <div className="border-t border-[#464554]/20 p-3 flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#dae2fd]">Complete Ad ({currentLocale})</span>
+                {currentFinalUri && (
+                  <a
+                    href={currentFinalUri}
+                    download={`adloom-final-${currentLocale.toLowerCase()}.mp4`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded-lg bg-gradient-to-r from-[#c0c1ff] to-[#8083ff] px-3 py-1.5 text-[10px] font-semibold text-[#0b1326] shadow-sm hover:shadow-md transition-all hover:scale-105 active:scale-95"
+                  >
+                    Download
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {filteredVideos.length > 0 && (
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#908fa0] mb-2">Scene Clips</p>
+        )}
+        <div className="space-y-4">
+          {filteredVideos.map((vid) => (
+            <div
+              key={vid.id}
+              className={`rounded-xl border border-[#464554]/30 bg-[#171f33]/60 overflow-hidden shadow-sm transition-all duration-300 hover:border-[#464554]/60 hover:shadow-lg ${
+                vid.uri && !vid.failed ? "cursor-pointer group" : "cursor-default"
+              }`}
+              onClick={() => {
+                if (vid.uri && !vid.failed) setSelectedVideo({ uri: vid.uri, label: `Scene ${vid.sceneIndex} (${vid.locale ?? "US"})` });
+              }}
+            >
+              <div className="aspect-video bg-[#060e20] relative overflow-hidden">
+                {vid.pending && (
+                  <div className="absolute inset-0 animate-shimmer flex items-center justify-center">
+                    <span className="text-[10px] text-[#908fa0] px-2 text-center">Generating video&hellip;</span>
+                  </div>
+                )}
+                {vid.failed && (
+                  <div className="absolute inset-0 bg-[#171f33] flex items-center justify-center p-2">
+                    <span className="text-[10px] text-[#ffb4ab] text-center leading-snug">
+                      {vid.error ?? "Failed"}
+                    </span>
+                  </div>
+                )}
+                {vid.uri && !vid.pending && !vid.failed && (
+                  <video
+                    src={vid.uri}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    muted
+                    loop
+                    autoPlay
+                    playsInline
+                  />
+                )}
+              </div>
+              <div className="border-t border-[#464554]/20 p-3">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="rounded-md bg-[#c0c1ff]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0c1ff]">
+                    Scene {vid.sceneIndex}
                   </span>
                 </div>
-              )}
-              {vid.uri && !vid.pending && !vid.failed && (
-                <video
-                  src={vid.uri}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  muted
-                  loop
-                  autoPlay
-                  playsInline
-                />
-              )}
-            </div>
-            <div className="border-t border-[#464554]/20 p-3">
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="rounded-md bg-[#c0c1ff]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0c1ff]">
-                  Scene {vid.sceneIndex}
-                </span>
+                <p className="text-[10px] text-[#908fa0] truncate">{vid.prompt}</p>
               </div>
-              <p className="text-[10px] text-[#908fa0] truncate">{vid.prompt}</p>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  })();
 
   // ── Storyboard panel ───────────────────────────────────────────────────
 
@@ -1062,15 +1148,13 @@ export default function ChatPage() {
       <div className="shrink-0 px-3 pt-3 pb-2 md:px-4">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#908fa0]">Storyboard</p>
         <div className="flex gap-1 rounded-xl border border-[#464554]/30 bg-[#171f33]/60 p-1">
-          {(["script", "characters", "keyframes", "videos"] as StoryboardTab[]).map((tab) => {
+          {(["script", "characters", "videos"] as StoryboardTab[]).map((tab) => {
             const count =
               tab === "script"
                 ? snapshots.length
                 : tab === "characters"
                   ? characters.length
-                  : tab === "keyframes"
-                    ? keyframes.length
-                    : videos.length;
+                  : videos.length;
             const active = storyboardTab === tab;
             return (
               <button
@@ -1083,7 +1167,7 @@ export default function ChatPage() {
                     : "text-[#908fa0] hover:text-[#c7c4d7]"
                 }`}
               >
-                {tab === "script" ? "Versions" : tab === "characters" ? "Cast" : tab === "keyframes" ? "Keyframes" : "Videos"}
+                {tab === "script" ? "Versions" : tab === "characters" ? "Cast" : "Videos"}
                 {count > 0 && (
                   <span className={`ml-1 tabular-nums ${active ? "text-[#c0c1ff]" : "text-[#464554]"}`}>
                     {count}
@@ -1095,11 +1179,14 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Region selector */}
-      {isKeyframePhase && (
-        <div className="mx-3 mb-2 shrink-0 rounded-xl border border-[#464554]/30 bg-[#171f33]/40 px-3 py-3 md:mx-4">
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-[#908fa0]">Target Markets</p>
-          <div className="flex gap-2">
+      {/* Locale selection step — shown before generation starts */}
+      {isProductionPhase && !localesConfirmed && (
+        <div className="mx-3 mb-2 shrink-0 rounded-xl border border-[#c0c1ff]/30 bg-[#171f33]/60 px-4 py-4 md:mx-4">
+          <p className="mb-1 text-xs font-semibold text-[#dae2fd]">Select Target Markets</p>
+          <p className="mb-3 text-[10px] text-[#908fa0] leading-relaxed">
+            Characters and videos will be generated for each selected market. You can review per-region results after generation.
+          </p>
+          <div className="flex gap-2 mb-3">
             {LOCALES.map((l) => {
               const active = selectedLocales.has(l.key);
               return (
@@ -1107,24 +1194,47 @@ export default function ChatPage() {
                   key={l.key}
                   type="button"
                   onClick={() => toggleLocale(l.key)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[11px] font-semibold transition-all duration-200 border ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-semibold transition-all duration-200 border ${
                     active
                       ? "border-current shadow-sm"
                       : "border-[#464554]/30 text-[#908fa0] opacity-50 hover:opacity-70"
                   }`}
                   style={active ? { color: l.color, borderColor: `${l.color}50`, background: `${l.color}10` } : {}}
                 >
-                  <span>{l.flag}</span>
+                  <span className="text-sm">{l.flag}</span>
                   <span>{l.key}</span>
                 </button>
               );
             })}
           </div>
+          <button
+            type="button"
+            onClick={handleConfirmLocalesAndStart}
+            disabled={selectedLocales.size === 0 || streaming}
+            className="w-full rounded-lg bg-gradient-to-r from-[#c0c1ff] to-[#8083ff] py-2.5 text-xs font-semibold text-[#0b1326] shadow-md hover:shadow-lg transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Start Generation
+          </button>
+        </div>
+      )}
+
+      {/* Active locale badges — shown after locales are confirmed */}
+      {isProductionPhase && localesConfirmed && (
+        <div className="mx-3 mb-2 shrink-0 flex gap-1.5 md:mx-4">
+          {LOCALES.filter((l) => selectedLocales.has(l.key)).map((l) => (
+            <span
+              key={l.key}
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold border"
+              style={{ borderColor: `${l.color}40`, background: `${l.color}10`, color: l.color }}
+            >
+              {l.flag} {l.key}
+            </span>
+          ))}
         </div>
       )}
 
       {/* Product image upload */}
-      {isKeyframePhase && (
+      {isProductionPhase && (
         <div className="mx-3 mb-2 shrink-0 rounded-xl border border-[#464554]/30 bg-[#171f33]/40 px-3 py-3 md:mx-4">
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-[#908fa0]">Product</p>
           {productImage ? (
@@ -1168,7 +1278,6 @@ export default function ChatPage() {
 
       {storyboardTab === "script" && scriptTab}
       {storyboardTab === "characters" && charactersTab}
-      {storyboardTab === "keyframes" && keyframesTab}
       {storyboardTab === "videos" && videosTab}
     </div>
   );
@@ -1320,13 +1429,13 @@ export default function ChatPage() {
               Adloom
             </h1>
             <p className="truncate text-[11px] text-[#908fa0]">
-              {isKeyframePhase ? "Visual production" : "Discovery"}
+              {isProductionPhase ? "Visual production" : "Discovery"}
             </p>
           </div>
 
           {/* Locale indicators */}
           <div className="hidden sm:flex items-center gap-1.5 ml-2">
-            {LOCALES.map((l) => (
+            {LOCALES.filter((l) => selectedLocales.has(l.key)).map((l) => (
               <span
                 key={l.key}
                 className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold border"
@@ -1534,8 +1643,8 @@ export default function ChatPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              isKeyframePhase
-                ? "Ask for character refs, keyframes, or changes..."
+              isProductionPhase
+                ? "Ask for character refs, scene videos, or changes..."
                 : "Describe your ad, answer questions, refine the brief..."
             }
             rows={1}

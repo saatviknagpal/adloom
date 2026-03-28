@@ -16,38 +16,36 @@ function getApiKey(): string {
   return key;
 }
 
-function buildDiscoverySystemPrompt(draftBriefJson: string): string {
-  return `You are Adloom's discovery agent. Your job is ONLY to fill the product brief using the template structure below.
+function buildDiscoverySystemPrompt(): string {
+  return `You are Adloom's creative director. Your job is to take the user's ad concept and turn it into a complete script version by calling **commit_script_version**.
 
-TEMPLATE (JSON — keys and nested shape you must use; "description" strings explain intent):
+TEMPLATE (JSON — keys and nested shape; "description" strings explain intent):
 ${JSON.stringify(basicCopy, null, 2)}
 
-CURRENT DRAFT (on the server — merge factual updates via update_draft_brief):
-${draftBriefJson}
+You have ONE tool: **commit_script_version**. It saves a complete script version (scenes + characters) to the storyboard.
 
 Rules:
-- Ask short, targeted questions. Record ONLY what the user clearly states (or what is explicit in prior messages). Do not invent brand facts, products, or copy.
-- **User-facing tone:** Reply in natural conversational prose only. **Never** show raw JSON, code fences (\`\`\`), or "here's the JSON" blocks to the user. Tools persist data; the user should not see schema dumps.
-- Whenever the user confirms a fact (brand, product, theme, mood, hook, etc.), call **update_draft_brief** in the **same turn** with **patch_json** — do not rely on pasting JSON in chat instead of the tool.
-- Collect fields from the template: brand, product, creative_direction, the_hook, and especially **scenes** (at most 5) and **characters** (talent_type + cast, at most 3 people).
-- For a single vibe word (e.g. "exciting", "cozy"), set **creative_direction.theme** to a short creative umbrella phrase that includes it, and **mood** to match — do not leave theme empty while only mood is set, or approve-time cleanup may mis-infer theme from scenes alone.
-- Before committing a version, confirm with the user: e.g. "Is that everything you want for scenes?" and "Is that the full cast?" Both must be confirmed before commit_script_version.
-- If the user asks you to "generate" or "draft" scenes or characters from context, propose concrete scenes (≤5) and cast (≤3) in **plain language**, then confirm before committing.
+- **CRITICAL: ALWAYS produce a text response.** After calling commit_script_version, you MUST ALSO produce a text message summarizing what you created. Never emit only a tool call with no text.
+- **User-facing tone:** Reply in natural conversational prose only. **Never** show raw JSON, code fences, or schema dumps.
+- When the user gives you enough info to construct scenes AND cast, call **commit_script_version** IMMEDIATELY. Do NOT ask for confirmation — just do it. Fill in reasonable defaults for any missing details (frame descriptions, camera movements, etc.).
+- If the user gives partial info (e.g. a product but no ad concept), ask short targeted questions to get what you need, then commit.
+- If the user asks you to "generate" or "draft" an ad, propose concrete scenes and cast in plain language, then commit immediately.
+- Collect: brand, product, creative direction, the hook, scenes (1–5), and characters (1–3 cast members).
 
 Scene breakdown rules:
-- A scene = one continuous camera shot. Only create a new scene when there is a CUT to a different shot (different camera angle, different location, different subject). Do NOT split a single continuous shot into multiple scenes — that causes visual inconsistency between frames.
-- Each scene must be at most 8 seconds long. If the narrative requires a longer moment, break it into separate shots (each with its own camera angle and framing) rather than stretching one shot.
-- Aim for 1–5 scenes total. Each scene should have a clear purpose (hook, problem, solution, product showcase, CTA, etc.).
-- Each scene needs THREE description fields, a camera movement, and optional dialogue:
-  1. **action_description** — What happens: character actions, product interactions, the narrative beat, and the emotional arc. Describe the story, not just visuals.
-  2. **start_frame_description** — The OPENING composition: camera angle, shot size, lighting, setting, character positions, product placement. Be cinematic and specific — this becomes the start keyframe image. This is the BEFORE state of the action.
-  3. **end_frame_description** — The CLOSING composition showing the END STATE of the action described in action_description. The end frame must depict what the scene looks like AFTER the action has played out — not just a different camera angle on the same moment. For example, if the action is "the man reaches for the bottle and picks it up," the start frame shows the bottle on the table and the end frame shows the man holding the bottle. If the action is "she takes a sip and smiles," the start frame shows her raising the bottle and the end frame shows her smiling with the bottle lowered. The camera angle may also change, but the key difference is the NARRATIVE PROGRESSION, not just a camera move.
-  4. **camera_movement** — The camera motion across the entire shot (e.g. "slow dolly in", "pan left to right", "crane up", "handheld tracking", "static", "push in to close-up", "pull back to reveal"). This describes how the camera moves from the start frame to the end frame.
-  5. **dialogue** (optional) — Any spoken lines during the scene. Include **speaker** (who says it — character role or "voiceover"), **line** (the exact words spoken), and **delivery_note** (tone/emotion/pacing, e.g. "whispered, intimate", "excited, fast-paced", "calm and authoritative"). Omit dialogue entirely for scenes with no speech. If it's a voiceover narration, use speaker "voiceover".
-- The start and end frames define the visual range for video interpolation between them. They must show two clearly different moments in the action so the resulting video has meaningful motion and narrative progression.
+- A scene = one continuous camera shot. Only create a new scene when there is a CUT.
+- Each scene must be at most 8 seconds long.
+- Aim for 1–5 scenes total. Each should have a clear purpose (hook, problem, solution, product showcase, CTA, etc.).
+- Each scene needs:
+  1. **action_description** — What happens: character actions, product interactions, narrative beat, emotional arc.
+  2. **start_frame_description** — Opening composition: camera angle, shot size, lighting, setting, character positions, product placement. The BEFORE state.
+  3. **end_frame_description** — Closing composition showing the END STATE after the action plays out. Must show narrative progression, not just a different angle.
+  4. **camera_movement** — Camera motion across the shot (e.g. "slow dolly in", "pan left to right", "static").
+  5. **dialogue** (optional) — Speaker, line, delivery_note. Use speaker "voiceover" for narration. Omit if no speech.
+- Start and end frames define the visual range for video generation. They must show two clearly different moments.
 
-- Call **commit_script_version** ONLY after explicit confirmation of BOTH the final scene list AND the final character list for this version. Arguments: label (string), scenes (array, 1–5 items), characters ({ talent_type, cast } with 1–3 cast members). Each scene: scene_number, start_time, end_time, action_description, start_frame_description, end_frame_description, camera_movement, and optionally dialogue ({ speaker, line, delivery_note }). Each cast entry: role, description.
-- Do NOT use any legacy beat-list format. No save_beat_list.
+commit_script_version args: label (string), scenes (array, 1–5), characters ({ talent_type, cast } with 1–3 cast members). Each scene: scene_number, start_time, end_time, action_description, start_frame_description, end_frame_description, camera_movement, and optionally dialogue. Each cast entry: role, description.
+
 - Be concise. Do NOT generate images or videos. Avoid stereotypes.`;
 }
 
@@ -66,124 +64,76 @@ const KEYFRAME_SYSTEM_PROMPT = `You are the visual director for Adloom, a locale
 You have an approved brief and scene list. Your job is to generate the visual assets for the ad.
 
 You have two tools:
-1. generate_character — create a reference image for a character that appears in the ad.
-2. generate_keyframe — create a start or end keyframe (scene image) for a specific scene, compositing characters and product.
+1. generate_character — create a reference image for ONE character in ONE locale. You MUST call this separately for EVERY character × locale combination. Use the "locale" parameter to specify which market this variant is for (e.g. "US", "IN", "CN").
+2. generate_videos — generate video clips for all scenes using character references. The system looks up characters by locale to use the correct regional variants.
 
-Workflow:
-1. Review the scene list and the pipeline state block to see which characters still need generating.
-2. For each character not yet marked "ready", call generate_character with a detailed visual description. Be specific about age, appearance, clothing, expression, and pose. Character prompts MUST describe a frontal/front-facing view against a plain solid-color or transparent background with studio-style even lighting. Do NOT include environmental backgrounds — those belong in keyframes, not character references.
-3. Once ALL characters are generated, STOP making tool calls. Summarize the characters created and ask the user if they are satisfied with the results. If the user wants changes, regenerate as requested.
-4. Only proceed to keyframe generation when the user explicitly confirms they are happy with the characters.
-5. For each scene, generate TWO keyframes — a start frame and an end frame (see Temporal Pairs rule below). Check the pipeline state block to see which scenes still need keyframes and skip any already marked "ready".
-6. After ALL keyframes (start + end for every scene) are generated, summarize the results and ask the user if they are satisfied. If the user wants changes, regenerate specific keyframes as requested.
+CRITICAL WORKFLOW — follow this EXACTLY:
 
-Temporal Pairs rule:
-- Every scene MUST have exactly two keyframes: a Start Frame and an End Frame.
-- Call generate_keyframe with keyframeType "start" and label "scene_[N]_start" for the start frame.
-- Call generate_keyframe with keyframeType "end" and label "scene_[N]_end" for the end frame.
-- The Start Frame represents the first moment of the scene (the opening composition).
-- The End Frame must show a CLEARLY DIFFERENT camera angle, shot size, or composition from the Start Frame. Think of it as a real film cut within the same scene — e.g., wide establishing shot → tight close-up, over-the-shoulder → frontal reaction shot, high angle → eye level. A subtle zoom or tiny reframe is NOT enough; the two frames must be visually distinct at a glance.
-- Both frames share the same environment, lighting, and characters — what changes is the camera position/lens and character pose/action, not the setting.
-- The start-frame image is automatically attached as a reference when generating the end frame. Use this to maintain environmental consistency while making a bold camera move.
+**Step 1: Generate US characters first.**
+For each character in the cast, call generate_character with locale="US" and a detailed visual prompt describing a person appropriate for the US market. Be specific about age, ethnicity, appearance, clothing, expression, and pose. Character prompts MUST describe a frontal/front-facing view against a plain solid-color or transparent background with studio-style even lighting.
 
-Cross-scene continuity rule:
-- When generating scene_[N]_start (for N > 0), the end frame of the previous scene (scene_[N-1]_end) is automatically attached as a reference image if available.
-- Use this to maintain visual continuity across scene transitions — consistent lighting direction, color grade, and spatial relationships where scenes share a location or follow a continuous action.
+**Step 2: Generate locale variants for EVERY other selected market.**
+Check the pipeline state block for "Target locales". For each non-US locale (e.g. IN, CN), you MUST call generate_character AGAIN for EVERY character with:
+- locale set to that market code (e.g. "IN", "CN")
+- A REWRITTEN visual prompt that adapts the character's ethnicity and appearance for that region:
+  - "IN" (India) → South Asian / Indian appearance, skin tone, facial features, hair appropriate for Indian people
+  - "CN" (China) → East Asian / Chinese appearance, skin tone, facial features, hair appropriate for Chinese people
+- Keep the same role, age range, gender, wardrobe style, expression, and pose direction as the US version
+- Keep the same character name so the system can group them
 
-Character Reference rule (Asset Link):
-- When a scene includes a character, you MUST pass their asset IDs in characterIds. This is mandatory, not optional.
-- In your visualPrompt, refer to the character as "the character shown in the attached reference image" rather than re-describing their physical appearance from scratch. You may add action, pose, and expression details, but do NOT re-invent their face, hair, clothing, or build.
-- The image generation model will receive the actual character reference images. Your job is to describe the scene, composition, and action — not to re-describe the character's appearance.
+**Step 3: Wait for all characters across ALL locales to be "ready".**
+Check the pipeline state. Every character × locale cell must show "ready". If any are missing or failed, generate/regenerate them. Do NOT proceed until ALL are ready.
+
+**Step 4: Ask user to review characters.**
+Once all character × locale variants are generated, summarize what was created and ask the user to confirm they are happy with the results.
+
+**Step 5: Generate videos.**
+Only after user confirmation, call generate_videos with the target locales. The system will use the locale-specific character references you already generated.
 
 Pipeline state rules:
-- A "== Pipeline State (authoritative) ==" block is appended to each message. It shows the current state of all characters AND all keyframes.
+- A "== Pipeline State (authoritative) ==" block is appended to each message. It shows characters grouped by locale and a grid showing which character × locale combinations exist.
+- "Target locales" tells you which markets the user selected. You MUST generate characters for ALL of them.
 - Do NOT generate characters already marked "ready" unless the user explicitly asks for a regeneration.
-- Do NOT generate keyframes already marked "ready" unless the user explicitly asks for a regeneration.
-- When creating a NEW character, omit the "id" parameter from the tool call.
-- When REGENERATING an existing character, pass the "id" of the character to replace. This creates a new version.
-- Use the "groupKey" shown in the state block to reference characters.
+- When creating a NEW character, omit the "id" parameter.
+- When REGENERATING an existing character, pass its "id" to create a new version.
 
 General rules:
-- Generate characters BEFORE keyframes so references are available.
+- Generate characters BEFORE videos so references are available.
 - Be specific and visual in your prompts. Avoid vague language.
-- Each keyframe prompt should be self-contained — include all visual details for the environment, lighting, composition, and action.
-- Do NOT skip any scenes — every scene needs both a start and end keyframe.
 - Call one tool at a time. Wait for the result before calling the next.
-- IMPORTANT: Do NOT call generate_keyframe until the user has reviewed the characters and explicitly approved them.
-- IMPORTANT: Only generate assets for the US / English locale. Ignore other locales for now.
-
-Video generation:
-- After ALL keyframes (start + end for every scene) are generated and ready, ask the user if they want to proceed with video generation.
-- Only call generate_videos when the user explicitly confirms they want to generate videos.
-- generate_videos will create a video clip for each scene by interpolating between the start and end keyframes, guided by the scene's action description and camera movement.`;
+- IMPORTANT: Do NOT call generate_videos until the user has reviewed the characters across all markets and explicitly approved them.
+- When calling generate_videos, pass the user-selected target markets as the "locales" parameter.`;
 
 const GENERATE_CHARACTER_TOOL = {
   type: "function" as const,
   function: {
     name: "generate_character",
     description:
-      "Generate a reference image for a character in the ad. Call this before generating keyframes that include this character.",
+      "Generate a reference image for ONE character in ONE locale. You must call this separately for every character × locale combination. Adapt the visual prompt to match the target market's ethnicity.",
     parameters: {
       type: "object",
       properties: {
         name: {
           type: "string",
-          description: "Character name/role, e.g. 'protagonist', 'the mom', 'barista'",
+          description: "Character name/role, e.g. 'protagonist', 'the mom', 'barista'. Use the SAME name across locales so the system can group them.",
         },
         visualPrompt: {
           type: "string",
           description:
-            "Detailed visual description for the character reference image. Include age, ethnicity, build, clothing, hairstyle, expression, and pose. MUST specify a frontal/front-facing pose against a plain solid-color or transparent background for compositing into keyframes. No environmental backgrounds.",
+            "Detailed visual description for THIS locale's character. Include age, ethnicity appropriate for the locale, build, clothing, hairstyle, expression, and pose. MUST specify a frontal/front-facing pose against a plain solid-color or transparent background. Adapt ethnicity: US=diverse American, IN=South Asian/Indian, CN=East Asian/Chinese.",
+        },
+        locale: {
+          type: "string",
+          enum: ["US", "IN", "CN"],
+          description: "Which market this character variant is for. Determines the region tag on the asset.",
         },
         id: {
           type: "string",
           description:
-            "Existing character asset ID. If provided, creates a new version of this character instead of a new character. Omit for brand-new characters.",
+            "Existing character asset ID to regenerate. Creates a new version. Omit for brand-new characters.",
         },
       },
-      required: ["name", "visualPrompt"],
-    },
-  },
-};
-
-const GENERATE_KEYFRAME_TOOL = {
-  type: "function" as const,
-  function: {
-    name: "generate_keyframe",
-    description:
-      "Generate a start or end keyframe image for a specific scene. Reference character images are attached automatically when characterIds are provided — describe the scene and action, not the character's appearance.",
-    parameters: {
-      type: "object",
-      properties: {
-        beatIndex: {
-          type: "number",
-          description: "Scene index (0-based) from the approved scene list",
-        },
-        keyframeType: {
-          type: "string",
-          enum: ["start", "end"],
-          description: "Whether this is the start or end keyframe for the scene",
-        },
-        label: {
-          type: "string",
-          description: "Label in the format scene_[N]_start or scene_[N]_end",
-        },
-        visualPrompt: {
-          type: "string",
-          description:
-            "Detailed visual prompt for the scene. Include camera angle, lighting, composition, setting, and action. Refer to characters as 'the character shown in the attached reference image' — do not re-describe their appearance. Be cinematic and specific.",
-        },
-        characterIds: {
-          type: "array",
-          items: { type: "string" },
-          description: "Asset IDs of characters in this scene. MANDATORY when the scene includes characters — pass an empty array if no characters are present.",
-        },
-        includeProductImage: {
-          type: "boolean",
-          description: "Whether to include the uploaded product image as a reference",
-        },
-      },
-      required: ["beatIndex", "keyframeType", "label", "visualPrompt", "characterIds"],
+      required: ["name", "visualPrompt", "locale"],
     },
   },
 };
@@ -193,10 +143,16 @@ const GENERATE_VIDEOS_TOOL = {
   function: {
     name: "generate_videos",
     description:
-      "Generate video clips for all scenes by interpolating between approved start and end keyframes. Only call this after the user has explicitly confirmed they want to proceed with video generation.",
+      "Generate video clips for all scenes using character references. Generates a final stitched video per locale. Only call this after the user has explicitly confirmed they want to proceed with video generation.",
     parameters: {
       type: "object",
-      properties: {},
+      properties: {
+        locales: {
+          type: "array",
+          items: { type: "string", enum: ["US", "IN", "CN"] },
+          description: "Locales to generate videos for. Defaults to ['US']. Each additional locale gets localized dialogue. The user selects target markets in the UI.",
+        },
+      },
       required: [],
     },
   },
@@ -207,11 +163,6 @@ const KEYFRAME_TOOLS_GEMINI = [
     name: GENERATE_CHARACTER_TOOL.function.name,
     description: GENERATE_CHARACTER_TOOL.function.description,
     parameters: GENERATE_CHARACTER_TOOL.function.parameters as unknown as import("@google/generative-ai").FunctionDeclarationSchema,
-  },
-  {
-    name: GENERATE_KEYFRAME_TOOL.function.name,
-    description: GENERATE_KEYFRAME_TOOL.function.description,
-    parameters: GENERATE_KEYFRAME_TOOL.function.parameters as unknown as import("@google/generative-ai").FunctionDeclarationSchema,
   },
   {
     name: GENERATE_VIDEOS_TOOL.function.name,
@@ -247,62 +198,86 @@ type AssetRow = {
 };
 
 /**
- * Build a compact pipeline state block showing characters, keyframes, and videos.
+ * Build a compact pipeline state block showing a character × locale grid and videos.
  */
 export function buildPipelineStateBlock(
   charGroups: Record<string, AssetRow[]>,
-  keyframeAssets: AssetRow[],
   sceneCount: number,
   videoAssets?: AssetRow[],
+  targetLocales?: string[],
 ): string {
+  const locales = targetLocales?.length ? targetLocales : ["US"];
   const lines: string[] = ["== Pipeline State (authoritative) =="];
+  lines.push(`Target locales: ${locales.join(", ")}`);
 
-  // ── Characters ──
-  lines.push("Characters:");
-  const charKeys = Object.keys(charGroups);
-  if (charKeys.length === 0) {
-    lines.push("  (none yet — review the scene list and generate all needed characters)");
+  const allAssets: AssetRow[] = [];
+  for (const versions of Object.values(charGroups)) {
+    for (const v of versions) allAssets.push(v);
+  }
+
+  // Build a map: characterName → locale → AssetRow
+  const charNames = new Set<string>();
+  const charGrid: Record<string, Record<string, AssetRow>> = {};
+  for (const a of allAssets) {
+    let locale = "US";
+    let name = a.groupKey ?? a.id;
+    try {
+      const meta = a.meta ? JSON.parse(a.meta) : {};
+      locale = meta.locale ?? "US";
+      name = meta.name ?? name;
+    } catch { /* ignore */ }
+    const baseName = name;
+    charNames.add(baseName);
+    if (!charGrid[baseName]) charGrid[baseName] = {};
+    charGrid[baseName][locale] = a;
+  }
+
+  lines.push("");
+  lines.push("Characters (grid — you must fill every cell):");
+
+  if (charNames.size === 0) {
+    lines.push("  (none yet — generate characters for each locale listed above)");
   } else {
-    for (const gk of charKeys) {
-      const versions = charGroups[gk];
-      const latest = versions[0];
-      if (!latest) continue;
-      const name = latest.meta ? (() => { try { return JSON.parse(latest.meta).name; } catch { return gk; } })() : gk;
-      const statusStr = formatAssetStatus(latest);
-      lines.push(`- [groupKey: "${gk}", id: "${latest.id}", version: ${latest.version}] "${name}" -- ${statusStr}`);
+    const header = `  ${"Character".padEnd(20)} | ${locales.map((l) => l.padEnd(10)).join(" | ")}`;
+    lines.push(header);
+    lines.push("  " + "-".repeat(header.length - 2));
+
+    for (const name of charNames) {
+      const cells = locales.map((locale) => {
+        const asset = charGrid[name]?.[locale];
+        if (!asset) return "MISSING".padEnd(10);
+        const status = formatAssetStatus(asset);
+        return status.padEnd(10);
+      });
+      lines.push(`  ${name.padEnd(20)} | ${cells.join(" | ")}`);
+    }
+
+    lines.push("");
+    lines.push("Character details:");
+    for (const name of charNames) {
+      for (const locale of locales) {
+        const asset = charGrid[name]?.[locale];
+        if (asset) {
+          lines.push(`  - "${name}" (${locale}): [id: "${asset.id}", groupKey: "${asset.groupKey ?? ""}", version: ${asset.version}] ${formatAssetStatus(asset)}`);
+        } else {
+          lines.push(`  - "${name}" (${locale}): NOT GENERATED — call generate_character with name="${name}", locale="${locale}"`);
+        }
+      }
     }
   }
 
-  // ── Keyframes ──
-  lines.push("Keyframes:");
-  if (sceneCount === 0) {
-    lines.push("  (no scenes in brief)");
-  } else {
-    for (let i = 0; i < sceneCount; i++) {
-      const startKf = keyframeAssets.find((a) => {
-        if (a.shotIndex !== i) return false;
-        try { return a.meta ? JSON.parse(a.meta).keyframeType === "start" : false; } catch { return false; }
-      });
-      const endKf = keyframeAssets.find((a) => {
-        if (a.shotIndex !== i) return false;
-        try { return a.meta ? JSON.parse(a.meta).keyframeType === "end" : false; } catch { return false; }
-      });
-      const startStatus = startKf ? formatAssetStatus(startKf) : "not_generated";
-      const endStatus = endKf ? formatAssetStatus(endKf) : "not_generated";
-      const startId = startKf ? `, id: "${startKf.id}"` : "";
-      const endId = endKf ? `, id: "${endKf.id}"` : "";
-      lines.push(`- scene_${i}: start [${startStatus}${startId}] | end [${endStatus}${endId}]`);
-    }
-  }
-
-  // ── Videos ──
-  if (videoAssets && sceneCount > 0) {
+  if (sceneCount > 0) {
+    lines.push("");
     lines.push("Videos:");
-    for (let i = 0; i < sceneCount; i++) {
-      const vid = videoAssets.find((a) => a.shotIndex === i);
-      const status = vid ? formatAssetStatus(vid) : "not_generated";
-      const vidId = vid ? `, id: "${vid.id}"` : "";
-      lines.push(`- scene_${i}: [${status}${vidId}]`);
+    if (!videoAssets || videoAssets.length === 0) {
+      lines.push("  (none yet — generate ALL characters across ALL locales first, then call generate_videos)");
+    } else {
+      for (let i = 0; i < sceneCount; i++) {
+        const vid = videoAssets.find((a) => a.shotIndex === i);
+        const status = vid ? formatAssetStatus(vid) : "not_generated";
+        const vidId = vid ? `, id: "${vid.id}"` : "";
+        lines.push(`  - scene_${i}: [${status}${vidId}]`);
+      }
     }
   }
 
@@ -380,31 +355,12 @@ export async function* streamKeyframeChat(
   }
 }
 
-const UPDATE_DRAFT_BRIEF_TOOL = {
-  type: "function" as const,
-  function: {
-    name: "update_draft_brief",
-    description:
-      "Merge factual updates into the session draft. When the user states new facts, call with patch_json: a JSON string of a partial brief, e.g. {\"brand\":{\"name\":\"Acme\"}}.",
-    parameters: {
-      type: "object",
-      properties: {
-        patch_json: {
-          type: "string",
-          description: "Stringified JSON object; only keys the user just clarified.",
-        },
-      },
-      required: ["patch_json"],
-    },
-  },
-};
-
 const COMMIT_SCRIPT_VERSION_TOOL = {
   type: "function" as const,
   function: {
     name: "commit_script_version",
     description:
-      "Save one approved version to the storyboard. ONLY after the user confirmed BOTH the full scene list (≤5) AND the full cast (≤3).",
+      "Save a script version to the storyboard. Call this when you have BOTH scenes (≤5) AND cast (≤3). If the user provided a complete ad concept, commit immediately without asking for confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -464,9 +420,9 @@ const COMMIT_SCRIPT_VERSION_TOOL = {
 export async function* streamChat(
   history: HistoryEntry[],
   userMessage: string,
-  draftBriefJson: string,
+  executeTool?: ToolExecutor,
 ): AsyncGenerator<StreamEvent> {
-  const discoveryInstruction = buildDiscoverySystemPrompt(draftBriefJson);
+  const discoveryInstruction = buildDiscoverySystemPrompt();
   const { GoogleGenerativeAI, FunctionCallingMode } = await import("@google/generative-ai");
   const client = new GoogleGenerativeAI(getApiKey());
   const model = client.getGenerativeModel({
@@ -474,11 +430,6 @@ export async function* streamChat(
     systemInstruction: discoveryInstruction,
     tools: [{
       functionDeclarations: [
-        {
-          name: UPDATE_DRAFT_BRIEF_TOOL.function.name,
-          description: UPDATE_DRAFT_BRIEF_TOOL.function.description,
-          parameters: UPDATE_DRAFT_BRIEF_TOOL.function.parameters as unknown as import("@google/generative-ai").FunctionDeclarationSchema,
-        },
         {
           name: COMMIT_SCRIPT_VERSION_TOOL.function.name,
           description: COMMIT_SCRIPT_VERSION_TOOL.function.description,
@@ -513,42 +464,50 @@ export async function* streamChat(
 
     if (toolCalls.length === 0) break;
 
-    const responses: import("@google/generative-ai").FunctionResponsePart[] = toolCalls.map((tc) => ({
-      functionResponse: {
-        name: tc.name,
-        response: { success: true },
-      },
-    }));
-    pendingMessage = responses;
+    const functionResponses: import("@google/generative-ai").FunctionResponsePart[] = [];
+    for (const tc of toolCalls) {
+      const response = executeTool
+        ? await executeTool(tc.name, tc.args)
+        : { success: true };
+      functionResponses.push({
+        functionResponse: { name: tc.name, response },
+      });
+    }
+    pendingMessage = functionResponses;
   }
 }
 
-const LOCALIZATION_PROMPT = `Given the following approved beat list, generate localized spoken lines for each beat.
+const LOCALIZATION_PROMPT = `You are localizing dialogue for a video ad. Given the scene list below, translate/adapt the dialogue for each requested locale.
 
-Beat list:
-{BEATS}
+Scenes:
+{SCENES}
 
-Output a JSON object (no markdown fencing, pure JSON):
+Locales to generate: {LOCALES}
+
+Output a JSON object (no markdown fencing, pure JSON) with this structure:
 {{
-  "product": "infer from beats",
-  "brandName": "infer from beats",
-  "targetAudience": "infer from beats",
-  "tone": "infer from beats",
-  "offer": "infer from beats",
-  "visualStyle": "infer from beats",
-  "beats": <the beats array as-is>,
-  "localizedScripts": {{
-    "US": {{ "lines": ["English line per beat..."] }},
-    "IN": {{ "lines": ["Hindi line per beat (Devanagari)..."] }},
-    "CN": {{ "lines": ["Mandarin line per beat (Simplified Chinese)..."] }}
+  "localized": {{
+    "<LOCALE>": [
+      {{
+        "scene_number": <number>,
+        "dialogue": {{
+          "speaker": "<same speaker role as original>",
+          "line": "<translated/adapted line in the locale's language>",
+          "delivery_note": "<adapted delivery note>"
+        }}
+      }}
+    ]
   }}
 }}
 
 Rules:
-- localizedScripts.US.lines should match spokenLine per beat.
-- localizedScripts.IN.lines should be natural Hindi (Devanagari script).
-- localizedScripts.CN.lines should be natural Mandarin (Simplified Chinese).
-- Keep lines short and punchy — these are ad voiceovers, not essays.`;
+- For "IN", translate dialogue into natural Hindi (Devanagari script). Adapt cultural references for Indian audiences.
+- For "CN", translate dialogue into natural Mandarin (Simplified Chinese). Adapt cultural references for Chinese audiences.
+- For "US", keep the original English dialogue unchanged.
+- If a scene has no dialogue in the original, omit it from that locale's array.
+- Keep lines short and punchy — these are ad voiceovers, not essays.
+- Preserve the speaker role names in English (e.g. "protagonist", "voiceover").
+- The delivery_note should be adapted to feel natural in the target culture.`;
 
 function stripJsonFromModelText(text: string): string {
   const t = text.trim();
@@ -629,11 +588,98 @@ export async function enrichBriefEmptyFields(mergedBriefJson: string): Promise<s
   return out;
 }
 
-export async function localizeBrief(beatsJson: string): Promise<string> {
-  const prompt = LOCALIZATION_PROMPT.replace("{BEATS}", beatsJson);
+export type LocalizedDialogue = {
+  scene_number: number;
+  dialogue: {
+    speaker: string;
+    line: string;
+    delivery_note: string;
+  };
+};
+
+export type LocalizationResult = Record<string, LocalizedDialogue[]>;
+
+export async function localizeScenes(
+  scenesJson: string,
+  locales: string[],
+): Promise<LocalizationResult> {
+  const prompt = LOCALIZATION_PROMPT
+    .replace("{SCENES}", scenesJson)
+    .replace("{LOCALES}", locales.join(", "));
+
   const { GoogleGenerativeAI } = await import("@google/generative-ai");
   const client = new GoogleGenerativeAI(getApiKey());
   const model = client.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
   const result = await model.generateContent(prompt);
-  return result.response.text();
+  const raw = stripJsonFromModelText(result.response.text());
+
+  try {
+    const parsed = JSON.parse(raw) as { localized: LocalizationResult };
+    return parsed.localized ?? {};
+  } catch {
+    console.error("[localize] Failed to parse localization response:", raw);
+    return {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Character prompt localization — adapt character visuals per region
+// ---------------------------------------------------------------------------
+
+const CHARACTER_LOCALIZATION_PROMPT = `You are adapting character visual descriptions for a video ad that will run in a different market.
+
+Original characters (designed for the US market):
+{CHARACTERS}
+
+Target market: {LOCALE}
+
+For each character, rewrite the visual description so the character represents the target market's predominant ethnicity and cultural appearance, while keeping:
+- The same role, age range, and gender
+- The same wardrobe *style* (adapt specifics if culturally appropriate — e.g. "streetwear" stays streetwear but adapted to local fashion)
+- The same pose direction (front-facing, studio lighting, plain background)
+- The same energy/expression/demeanor
+
+Output a JSON array (no markdown fencing, pure JSON):
+[
+  {{
+    "name": "<same character name/role>",
+    "prompt": "<rewritten visual description for the target market>"
+  }}
+]
+
+Rules:
+- For "IN" (India): Characters should be South Asian / Indian in appearance.
+- For "CN" (China): Characters should be East Asian / Chinese in appearance.
+- Be specific about skin tone, facial features, hair texture/style as appropriate for the region.
+- Do NOT change the character's role or the number of characters.
+- Keep descriptions detailed and suitable for image generation (age, build, clothing, hairstyle, expression, pose).`;
+
+export type LocalizedCharacter = {
+  name: string;
+  prompt: string;
+};
+
+export async function localizeCharacterPrompts(
+  characters: { name: string; prompt: string }[],
+  locale: string,
+): Promise<LocalizedCharacter[]> {
+  const charsJson = JSON.stringify(characters, null, 2);
+  const prompt = CHARACTER_LOCALIZATION_PROMPT
+    .replace("{CHARACTERS}", charsJson)
+    .replace("{LOCALE}", locale);
+
+  const { GoogleGenerativeAI } = await import("@google/generative-ai");
+  const client = new GoogleGenerativeAI(getApiKey());
+  const model = client.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
+  const result = await model.generateContent(prompt);
+  const raw = stripJsonFromModelText(result.response.text());
+
+  try {
+    const parsed = JSON.parse(raw) as LocalizedCharacter[];
+    if (Array.isArray(parsed)) return parsed;
+    return [];
+  } catch {
+    console.error("[localizeChars] Failed to parse character localization response:", raw);
+    return [];
+  }
 }

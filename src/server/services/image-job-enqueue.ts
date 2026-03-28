@@ -42,7 +42,7 @@ export async function sendVideoGenerationJob(data: VideoGenerateEventData): Prom
       "[adloom] Inngest send failed — running video generation in-process.",
       err instanceof Error ? err.message : err,
     );
-    const result = await generateVideo(data.prompt, data.sessionId, data.startFrameKey, data.endFrameKey);
+    const result = await generateVideo(data.prompt, data.sessionId, data.referenceKeys);
     await completeAssetGeneration(data.assetId, { uri: result.uri });
   }
 }
