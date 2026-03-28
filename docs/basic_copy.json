@@ -1,0 +1,46 @@
+{
+  "description": "Discovery template: the assistant fills these fields from user answers. Scenes (max 5) and characters.cast (max 3) are saved as named versions when the user confirms both; approve merges the selected version into the stored brief.",
+  "brand": {
+    "name": "String — Brand name as it should appear on screen",
+    "tagline": "String — Brand or campaign tagline, if any"
+  },
+  "product": {
+    "name": "String — Product name as it should appear on screen",
+    "usp": "String — The ONE thing this ad communicates",
+    "images": ["URL — High-res product images (lifestyle or packshot)"]
+  },
+  "creative_direction": {
+    "theme": "String — Creative theme (e.g. high-energy fitness, minimal luxury unboxing, raw UGC testimonial)",
+    "mood": "String — Emotional atmosphere (e.g. empowering, cozy, tense, celebratory)"
+  },
+  "the_hook": {
+    "type": "Enum [visual_surprise, bold_claim, question, product_in_action, pattern_interrupt, relatable_moment, sound_hook, text_hook] — Hook mechanic",
+    "visual": "String — What the viewer SEES in seconds 0.0–1.5",
+    "audio": "String — What the viewer HEARS in seconds 0.0–1.5"
+  },
+  "characters": {
+    "talent_type": "Enum [real_actor, ai_avatar, animated_character, ugc_style_creator, hand_model, no_talent]",
+    "cast": [
+      {
+        "role": "String — e.g. Main presenter, Product user",
+        "description": "String — Brief visual description"
+      }
+    ]
+  },
+  "scenes": [
+    {
+      "scene_number": "Integer",
+      "start_time": "Float — Start timestamp in seconds",
+      "end_time": "Float — End timestamp in seconds",
+      "action_description": "String — What happens during this scene: character actions, product interactions, narrative beat, and emotional arc. Describe the story, not just the visual.",
+      "start_frame_description": "String — Detailed visual description of the OPENING composition: camera angle, shot size, lighting, setting, character positions, product placement. This becomes the start keyframe.",
+      "end_frame_description": "String — The AFTER state: what the scene looks like after the action has played out. Must show narrative progression from the start frame, not just a camera change. This becomes the end keyframe.",
+      "camera_movement": "String — Camera motion across the whole shot (e.g. 'slow dolly in', 'pan left to right', 'crane up', 'handheld tracking', 'static', 'push in to close-up', 'pull back to reveal')",
+      "dialogue": {
+        "speaker": "String — Who speaks: character role (e.g. 'protagonist', 'barista') or 'voiceover'. Omit dialogue object entirely if the scene has no speech.",
+        "line": "String — The exact words spoken",
+        "delivery_note": "String — Tone/emotion/pacing (e.g. 'whispered, intimate', 'excited, upbeat', 'calm and authoritative')"
+      }
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: adloom-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: adloom
+      POSTGRES_PASSWORD: adloom
+      POSTGRES_DB: adloom
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adloom -d adloom"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    container_name: adloom-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: adloom
+      MINIO_ROOT_PASSWORD: adloom123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Inngest Dev Server — polls your host Next app at /api/inngest.
+  # Set NEXT_DEV_PORT in .env to match whatever port `npm run dev` prints (default 3000).
+  inngest:
+    image: inngest/inngest:v1.17.2
+    container_name: adloom-inngest
+    restart: unless-stopped
+    command:
+      [
+        "inngest",
+        "dev",
+        "--no-discovery",
+        "-u",
+        "http://host.docker.internal:${NEXT_DEV_PORT:-3000}/api/inngest",
+      ]
+    ports:
+      - "8288:8288"
+      - "8289:8289"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  postgres_data:
+  minio_data:

@@ -12,9 +12,9 @@
 | Framework | Next.js 15 (App Router, Turbopack) |
 | Language | TypeScript |
 | Styling | Tailwind CSS v4 |
-| Database | SQLite via Prisma ORM |
+| Database | PostgreSQL via Prisma ORM (Docker Compose) |
 | AI orchestration | Gemini 2.0 Flash (`@google/generative-ai`) |
-| Image generation | Nano Banana (Google GenMedia) |
+| Image generation | Nano Banana / Gemini 2.5 Flash Image (`@google/genai`) |
 | Video generation | Veo (Google GenMedia) |
 | Voice | TTS (Google / TBD) + lip sync |
 | Music (optional) | Lyria |
@@ -31,16 +31,15 @@ adloom/
 │   ├── PLAN.md                             # This file
 │   └── high-level-overview.png             # Architecture diagram
 ├── prisma/
-│   └── schema.prisma                       # Session, Message, Asset
+│   └── schema.prisma                       # Session, Message, Asset, Snapshot
 ├── public/
-│   └── uploads/                            # Product images (local dev)
+│   └── uploads/                            # Generated images + product uploads (local dev)
 ├── src/
 │   ├── app/                                # Next.js App Router
 │   │   ├── page.tsx                        # Home / landing
 │   │   ├── layout.tsx                      # Root layout
 │   │   ├── globals.css                     # Tailwind + theme
-│   │   ├── chat/[id]/page.tsx              # Chat UI (Loop 1)
-│   │   ├── review/[id]/page.tsx            # Keyframe review UI (Loop 2) — TODO
+│   │   ├── chat/[id]/page.tsx              # Chat + storyboard UI (Loop 1 & 2)
 │   │   ├── export/[id]/page.tsx            # Final video export page — TODO
 │   │   └── api/
 │   │       ├── health/route.ts             # Health check
@@ -48,30 +47,30 @@ adloom/
 │   │           ├── route.ts                # POST: create session
 │   │           └── [id]/
 │   │               ├── route.ts            # GET: fetch session
-│   │               ├── chat/route.ts       # POST: streaming chat (SSE)
+│   │               ├── chat/route.ts       # POST: streaming chat (SSE) — handles both script & keyframe phases
 │   │               ├── approve/route.ts    # POST: extract brief, lock script
-│   │               ├── upload/route.ts     # POST: product image upload — TODO
-│   │               ├── keyframes/route.ts  # POST: generate / GET: list — TODO
+│   │               ├── upload/route.ts     # POST: product image upload
+│   │               ├── snapshots/route.ts  # GET: list snapshots
 │   │               ├── generate/route.ts   # POST: kick off video pipeline — TODO
 │   │               └── export/route.ts     # GET: download final videos — TODO
 │   ├── components/
 │   │   ├── chat/                           # Chat-specific components — TODO
-│   │   ├── review/                         # Keyframe review components — TODO
 │   │   └── ui/                             # Shared primitives (Button, etc.) — TODO
 │   ├── lib/
 │   │   ├── db.ts                           # Prisma singleton
 │   │   └── env.ts                          # Zod-validated env vars
 │   ├── server/
 │   │   └── services/
-│   │       ├── gemini.ts                   # Gemini: streaming chat + brief extraction
-│   │       ├── session.ts                  # Session/Message CRUD (Prisma)
-│   │       ├── nano-banana.ts              # Image generation — TODO
+│   │       ├── gemini.ts                   # Gemini: streaming chat, keyframe agent, brief extraction, localization
+│   │       ├── session.ts                  # Session/Message/Asset/Snapshot CRUD (Prisma)
+│   │       ├── nano-banana.ts              # Image generation via Gemini 2.5 Flash Image
 │   │       ├── veo.ts                      # Video generation — TODO
 │   │       ├── tts.ts                      # Text-to-speech — TODO
 │   │       ├── lyria.ts                    # Music (optional) — TODO
 │   │       └── assembly.ts                 # Video + VO + music compositing — TODO
 │   └── types/
 │       └── index.ts                        # Shared types: Region, Beat, Brief, etc.
+├── docker-compose.yml                      # PostgreSQL service
 ├── .env.example
 ├── .gitignore
 ├── package.json
@@ -86,8 +85,9 @@ adloom/
 | Model | Purpose |
 |-------|---------|
 | **Session** | One ad project. Tracks status (`chatting` → `script_approved` → `keyframes_review` → `keyframes_approved` → `generating` → `done`), extracted brief JSON, beat list JSON, selected regions. |
-| **Message** | Chat history. Role (`user` / `assistant`), content, optional `imageUrl` for product uploads. |
-| **Asset** | Generated files. Kind (`product_image`, `keyframe`, `video`, `voiceover`, `music`, `preview`), region, shot index, version, URI, prompt used. |
+| **Message** | Chat history. Role (`user` / `assistant` / `system`), content, optional `imageUrl` for product uploads. |
+| **Snapshot** | Versioned beat list snapshots. Linked to session and optionally to the message that created it. User can select which version to approve. |
+| **Asset** | Generated files. Kind (`product_image`, `character`, `keyframe`, `video`, `voiceover`, `music`, `preview`), region, shot index, version, URI, prompt used, JSON metadata. |
 
 ---
 
@@ -100,19 +100,22 @@ adloom/
 | A1 | Home page with "Start new ad" → creates Session, redirects to chat | DONE |
 | A2 | Chat UI with streaming messages (SSE from Gemini) | DONE |
 | A3 | Gemini system prompt: guides user to define product, tone, audience, beats, spoken lines | DONE |
-| A4 | "Approve script" button → Gemini extracts structured brief (beats + localized scripts for US/IN/CN) → saved to DB | DONE |
-| A5 | Product image upload in chat flow | TODO |
-| A6 | Region selection UI (checkboxes: US / India / China) | TODO |
-| A7 | Brief summary panel after approval (show beats, scripts, selected regions) | TODO |
+| A4 | Beat list snapshot versioning via `save_beat_list` tool call | DONE |
+| A5 | "Approve script" button → Gemini extracts structured brief (beats + localized scripts for US/IN/CN) → saved to DB | DONE |
+| A6 | Product image upload in chat flow | DONE |
+| A7 | Region selection UI (checkboxes: US / India / China) | TODO |
 
 ### Phase B — Keyframes (Loop 2) → PRD: G2, G5
 
 | Step | Description | Status |
 |------|-------------|--------|
-| B1 | Gemini generates per-beat, per-region image prompts (product ref + locale art direction) | TODO |
-| B2 | Nano Banana generates keyframes (4–8 per region) | TODO |
-| B3 | Keyframe review page: grid of frames, per-frame feedback, selective regeneration | TODO |
-| B4 | "Approve keyframes" gate — nothing proceeds to video until user confirms | TODO |
+| B1 | Gemini keyframe agent with `generate_character` and `generate_keyframe` tool calls | DONE |
+| B2 | Nano Banana image generation service (`@google/genai`, `gemini-2.5-flash-image`) | DONE |
+| B3 | Chat route handles keyframe phase — tool calls trigger Nano Banana, results streamed via SSE | DONE |
+| B4 | Tabbed storyboard panel (Script / Characters / Keyframes) with image preview lightbox | DONE |
+| B5 | Character reference images used as Nano Banana inputs for keyframe consistency | DONE |
+| B6 | Currently English-only; extend to all locales when pipeline is solid | TODO |
+| B7 | "Approve keyframes" gate — nothing proceeds to video until user confirms | TODO |
 
 ### Phase C — Video generation → PRD: G3, G4, G5
 
@@ -139,12 +142,12 @@ adloom/
 | Method | Route | Purpose | Status |
 |--------|-------|---------|--------|
 | POST | `/api/sessions` | Create session | DONE |
-| GET | `/api/sessions/[id]` | Fetch session + messages + assets | DONE |
-| POST | `/api/sessions/[id]/chat` | SSE streaming chat with Gemini | DONE |
-| POST | `/api/sessions/[id]/approve` | Extract brief, lock script | DONE |
-| POST | `/api/sessions/[id]/upload` | Upload product image | TODO |
-| POST | `/api/sessions/[id]/keyframes` | Generate keyframes (Nano Banana) | TODO |
-| GET | `/api/sessions/[id]/keyframes` | List keyframes for review | TODO |
+| GET | `/api/sessions/[id]` | Fetch session + messages + assets + snapshots | DONE |
+| POST | `/api/sessions/[id]/chat` | SSE streaming chat — script phase (chatting) and keyframe phase (script_approved / keyframes_review) | DONE |
+| POST | `/api/sessions/[id]/approve` | Extract brief, localize, lock script | DONE |
+| POST | `/api/sessions/[id]/upload` | Upload product image | DONE |
+| GET | `/api/sessions/[id]/snapshots` | List snapshots | DONE |
+| POST | `/api/sessions/[id]/snapshots/[snapshotId]/select` | Select a snapshot version | DONE |
 | POST | `/api/sessions/[id]/generate` | Kick off video pipeline (Veo + TTS + assembly) | TODO |
 | GET | `/api/sessions/[id]/export` | Download final videos | TODO |
 | GET | `/api/health` | Health check | DONE |
@@ -156,8 +159,7 @@ adloom/
 | Route | Purpose | Status |
 |-------|---------|--------|
 | `/` | Landing page | DONE |
-| `/chat/[id]` | Chat + brief collection | DONE |
-| `/review/[id]` | Keyframe review + approval | TODO |
+| `/chat/[id]` | Chat + tabbed storyboard (script, characters, keyframes) | DONE |
 | `/export/[id]` | Side-by-side video preview + download | TODO |
 
 ---
@@ -166,22 +168,11 @@ adloom/
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `DATABASE_URL` | Yes | SQLite: `file:./dev.db` |
-| `GEMINI_API_KEY` | Yes | Gemini for chat, brief extraction, prompt generation |
-| Nano Banana credentials | For Phase B | Image generation |
+| `DATABASE_URL` | Yes | PostgreSQL: `postgresql://adloom:adloom@localhost:5432/adloom?schema=public` |
+| `GEMINI_API_KEY` | Yes | Gemini for chat, brief extraction, prompt generation, and Nano Banana image generation |
+| `OPENROUTER_API_KEY` | Optional | Alternative to GEMINI_API_KEY — routes through OpenRouter |
 | Veo credentials | For Phase C | Video generation |
 | TTS credentials | For Phase C | Voice synthesis |
-
----
-
-## Who works on what (suggested split)
-
-| Area | Scope |
-|------|-------|
-| **Frontend** | Chat polish, image upload UI, keyframe review page, export page, region selector |
-| **Gemini agents** | Prompt engineering for brief extraction, keyframe prompt generation, localization quality |
-| **Media pipeline** | Nano Banana, Veo, TTS, lip sync API integration, assembly |
-| **Infra / polish** | Real-time progress (SSE/WebSocket for generation status), error handling, demo prep |
 
 ---
 
@@ -189,9 +180,18 @@ adloom/
 
 ```bash
 npm install
+
+# Start PostgreSQL
+docker-compose up -d
+
+# Configure environment
 cp .env.example .env          # fill in GEMINI_API_KEY
+
+# Set up database
 npx prisma generate
 npx prisma db push
+
+# Start dev server
 npm run dev                    # http://localhost:3000
 npm run db:studio              # http://localhost:5555 (DB browser)
 ```

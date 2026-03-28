@@ -1,0 +1,241 @@
+{
+  "client": {
+    "brand_name": "String — Legal or commonly known brand name",
+    "industry": "String — Industry vertical (e.g., FinTech, Beauty, SaaS, QSR, Automotive)",
+    "brand_guidelines_url": "URL — Link to brand kit or style guide PDF",
+    "logo_assets_url": ["URL — Transparent PNG/SVG logo files. Provide horizontal, vertical, and icon-only variants if available"],
+    "existing_ad_references": ["URL — Links to the brand's previous ads that represent desired quality or direction"],
+    "competitor_references": ["URL — Links to competitor ads the client wants to match, beat, or deliberately avoid"]
+  },
+
+  "product": {
+    "name": "String — Exact product or service name as it should appear on screen",
+    "category": "String — Product category (e.g., Mobile App, Skincare Serum, SaaS Platform, Sneaker)",
+    "tagline": "String — Established brand or campaign tagline, if any",
+    "usp": "String — Single unique selling proposition. Must be strictly singular for a 10s ad",
+    "price_point": "String — Price or price range (e.g., '$29/mo', '$199', 'Starting at $49'). Leave empty if not featured in ad",
+    "key_features": ["String — Top 2-3 features worth highlighting. Only the strongest will survive the 10s cut"],
+    "product_assets": {
+      "images_url": ["URL — High-res lifestyle or product images"],
+      "3d_model_url": "URL — 3D model file if animation or rotation is needed",
+      "packshot_url": "URL — Clean pack shot on transparent/neutral background for end card"
+    }
+  },
+
+  "campaign": {
+    "goal": "Enum [awareness, consideration, conversion, retargeting, launch, seasonal, app_install, event_promo] — Primary campaign objective",
+    "kpi": "String — Key performance indicator (e.g., CTR, CPA, ROAS, Installs, Video completion rate)",
+    "offer": {
+      "has_offer": "Boolean — Whether the ad features a promotional offer",
+      "offer_text": "String — Short offer text (e.g., '20% Off', 'Free Shipping', 'Buy 1 Get 1'). Keep under 5 words for quick readability",
+      "promo_code": "String — Promo code to display on screen, if any",
+      "expiry_date": "ISO Date — Offer expiry date. Used for urgency framing"
+    },
+    "cta": {
+      "text": "String — Call-to-action copy (e.g., 'Shop Now', 'Download Free', 'Learn More', 'Use Code')",
+      "url": "URL — Landing page or deep link the CTA points to",
+      "button_style": "String — Visual style for CTA button (e.g., 'solid_fill', 'outline', 'text_only', 'animated_pulse')"
+    }
+  },
+
+  "target_cohort": {
+    "user_intent": "Enum [cold_audience, warm_prospect, retargeting, existing_customer] — Funnel stage of the audience. A cold audience ad looks fundamentally different from a retargeting ad even if the campaign goal is the same",
+    "demographics": {
+      "age_range": {
+        "min": "Integer — Minimum target age",
+        "max": "Integer — Maximum target age"
+      },
+      "gender": "Enum [all, male, female, non_binary] — Primary gender targeting",
+      "locations": ["String — Target geographies (countries, states, cities, DMAs)"],
+      "languages": ["String — Spoken/written languages for the ad content"],
+      "income_bracket": "Enum [low, middle, upper_middle, high, luxury] — Household income bracket"
+    },
+    "psychographics": {
+      "interests": ["String — Audience interests and affinities (e.g., 'Fitness', 'Crypto', 'K-Beauty')"],
+      "behaviors": ["String — Behavioral signals (e.g., 'Frequent online shoppers', 'Early adopters', 'Mobile gamers')"],
+      "pain_points": ["String — Specific problems this audience has that the product solves"],
+      "lifestyle": "String — General lifestyle descriptor (e.g., 'Urban professional', 'College student', 'New parent')",
+      "values": ["String — Core values that resonate (e.g., 'Sustainability', 'Convenience', 'Status')"],
+      "personality_traits": ["String — Personality leanings (e.g., 'Risk-taker', 'Budget-conscious', 'Trend-follower')"]
+    },
+    "device_preference": "Enum [mobile, desktop, tablet, ctv, all] — Primary device the audience will view the ad on. Impacts safe zones and text sizing",
+    "personalization_tokens": {
+      "use_viewer_name": "Boolean — Dynamically insert viewer's first name into the ad",
+      "use_viewer_location": "Boolean — Dynamically insert viewer's city or region",
+      "use_viewer_company": "Boolean — Dynamically insert viewer's company name (B2B use case)",
+      "custom_tokens": [
+        {
+          "key": "String — Token identifier (e.g., 'plan_name', 'cart_item')",
+          "value": "String — Default/fallback value if personalization data is unavailable"
+        }
+      ]
+    }
+  },
+
+  "delivery": {
+    "platforms": ["Enum [instagram_reels, instagram_stories, tiktok, youtube_shorts, youtube_preroll, youtube_bumper, facebook_feed, facebook_stories, snapchat, pinterest, ctv, display, linkedin, twitter_x, other] — All platforms this ad will run on. Each may need its own export"],
+    "aspect_ratios": ["Enum [9:16, 16:9, 1:1, 4:5] — Required aspect ratios. 9:16 for vertical-first platforms, 16:9 for YouTube/CTV"],
+    "resolution": "Enum [1080p, 4k] — Output resolution",
+    "fps": "Enum [24, 30, 60] — Frame rate. 30fps is standard for social, 24fps for cinematic feel, 60fps for high-motion",
+    "file_formats": ["Enum [mp4, mov, webm, gif] — Required output formats"],
+    "max_file_size_mb": "Integer — Platform-imposed file size limit",
+    "safe_zones": {
+      "platform_ui_overlay_margins": "Boolean — Whether to keep critical content away from platform UI elements (e.g., TikTok buttons, YouTube progress bar)",
+      "subtitle_safe_area": "Boolean — Whether to reserve bottom area for subtitle/caption text"
+    }
+  },
+
+  "creative_direction": {
+    "overall_theme": "String — High-level creative theme (e.g., 'High-energy lifestyle', 'Sleek minimalist tech', 'Raw & authentic UGC', 'Luxury editorial')",
+    "mood": "String — Emotional atmosphere (e.g., 'Empowering', 'Cozy', 'Tense', 'Celebratory')",
+    "tone": "Enum [humorous, serious, inspirational, edgy, luxurious, casual, urgent, nostalgic, playful, authoritative, asmr, sarcastic, wholesome] — Tonal register of the ad",
+    "visual_style": "Enum [live_action, animation_2d, animation_3d, motion_graphics, mixed_media, stop_motion, ai_generated, stock_composite, ugc_native, screen_capture] — Primary production style",
+    "pacing": "Enum [fast_cuts, slow_build, single_shot, dynamic_accelerating, rhythmic] — Edit rhythm. Fast cuts for high-energy, single shot for UGC authenticity",
+    "the_hook": {
+      "description": "Object — The single most important creative element. What happens in seconds 0.0–1.5 to stop the scroll. This field is mandatory — if the hook fails, the remaining 8.5 seconds are irrelevant.",
+      "type": "Enum [visual_surprise, bold_claim, question, product_in_action, pattern_interrupt, relatable_moment, sound_hook, text_hook] — Hook mechanic category",
+      "content": "String — Specific description of what happens (e.g., 'Product smashes through a wall of competitor products', 'Close-up of satisfying texture pull', 'Bold white text on black: YOU'RE DOING IT WRONG')",
+      "audio_element": "String — What the viewer HEARS in the first 1.5 seconds (e.g., 'Record scratch', 'Whispered question', 'Loud crunch SFX', 'Silence then bass drop')"
+    },
+    "reference_ads": [
+      {
+        "url": "URL — Link to a reference ad",
+        "what_to_reference": "String — What specifically to take from this reference (e.g., 'The color grading', 'The transition style', 'The text animation only')"
+      }
+    ],
+    "mandatory_inclusions": ["String — Non-negotiable elements that must appear (e.g., 'Product must be shown within first 3 seconds', 'Logo on screen for final 2 seconds')"],
+    "strict_exclusions": ["String — Hard no's (e.g., 'No competitor mentions', 'No red color', 'No children in the ad', 'No stock footage')"]
+  },
+
+  "color_palette": {
+    "primary": "Hex — Dominant brand color used for key visual elements",
+    "secondary": "Hex — Supporting brand color",
+    "accent": "Hex — Pop color for CTAs, highlights, and emphasis",
+    "background": "Hex — Default background color or tone",
+    "text_color": "Hex — Primary text color for on-screen copy",
+    "gradient": {
+      "from": "Hex — Gradient start color",
+      "to": "Hex — Gradient end color",
+      "direction": "String — Gradient direction (e.g., 'top_to_bottom', 'left_to_right', '45deg')"
+    },
+    "use_brand_colors_only": "Boolean — If true, no colors outside the brand palette are permitted"
+  },
+
+  "typography": {
+    "primary_font": "String — Main headline/display font (e.g., 'Montserrat Bold', 'Helvetica Neue')",
+    "secondary_font": "String — Body/subtitle font",
+    "headline_style": {
+      "weight": "Enum [bold, semibold, regular, light] — Font weight for headlines",
+      "case": "Enum [uppercase, lowercase, sentence_case, title_case] — Text casing for headlines",
+      "max_chars": "Integer — Maximum character count per headline line to ensure readability at speed"
+    },
+    "subtitle_style": {
+      "font": "String — Font used for subtitles/captions",
+      "color": "Hex — Subtitle text color",
+      "background": "Enum [none, solid, gradient, blur] — Subtitle background treatment for legibility"
+    }
+  },
+
+  "script": {
+    "duration_seconds": 10,
+    "scene_breakdown": [
+      {
+        "scene_number": "Integer — Sequential scene number starting from 1",
+        "start_time": "Float — Scene start timestamp in seconds (e.g., 0.0)",
+        "end_time": "Float — Scene end timestamp in seconds (e.g., 2.5)",
+        "visual_description": "String — Detailed description of what is visually happening on screen",
+        "on_screen_text": "String — Exact text displayed on screen during this scene. Keep each line under 6 words for scannability",
+        "text_animation": "Enum [fade_in, slide_up, slide_left, typewriter, pop, glitch, kinetic, none] — How the on-screen text enters",
+        "dialogue": {
+          "speaker": "String — Character or narrator identifier",
+          "line": "String — Exact spoken line. Total VO across all scenes must stay within 15-25 words for a 10s ad",
+          "delivery_note": "String — Direction for voice performance (e.g., 'Whispered with urgency', 'Deadpan', 'Excited rising pitch')"
+        },
+        "camera": {
+          "shot_type": "Enum [extreme_close_up, close_up, medium_close_up, medium, medium_wide, wide, extreme_wide, overhead, pov, dutch_angle] — Framing of the shot",
+          "movement": "Enum [static, pan_left, pan_right, tilt_up, tilt_down, zoom_in, zoom_out, tracking, dolly_in, dolly_out, orbit, handheld_shake, crane_up] — Camera motion during the scene",
+          "transition_in": "Enum [cut, dissolve, wipe, zoom, whip_pan, morph, glitch, match_cut, j_cut, l_cut, none] — How this scene transitions from the previous one"
+        }
+      }
+    ],
+    "end_card": {
+      "duration_seconds": "Float — How long the end card is visible (typically 1.5-2.5s of the total 10s)",
+      "logo_placement": "Enum [center, bottom_center, bottom_left, bottom_right, top_right, top_left] — Logo position on end card",
+      "text": "String — End card copy (e.g., tagline, URL, or promo code)",
+      "cta_button": "Boolean — Whether to render a visible CTA button on the end card",
+      "background": "String — End card background treatment (e.g., 'brand_primary_solid', 'blurred_last_frame', 'gradient', 'product_packshot')"
+    }
+  },
+
+  "characters": {
+    "talent_type": "Enum [real_actor, voiceover_only, ai_avatar, animated_character, ugc_style_creator, hand_model, no_talent] — Primary talent approach",
+    "cast": [
+      {
+        "role": "String — Character role (e.g., 'Main presenter', 'Product user', 'Bystander')",
+        "description": "String — Brief character description and purpose in the story",
+        "age_range": "String — Apparent age range (e.g., '25-30')",
+        "gender": "String — Character gender",
+        "ethnicity": "String — Ethnicity or appearance notes for casting. Specify 'diverse/open' if no preference",
+        "wardrobe": "String — Clothing and styling direction (e.g., 'Casual streetwear in brand colors', 'Corporate attire', 'Gym wear')",
+        "demeanor": "String — How the character carries themselves (e.g., 'Confident and relaxed', 'Frazzled then relieved', 'Playfully skeptical')"
+      }
+    ]
+  },
+
+  "audio": {
+    "voiceover": {
+      "enabled": "Boolean — Whether the ad includes spoken voiceover",
+      "gender": "String — VO artist gender preference",
+      "age": "String — Apparent age of the voice (e.g., 'Young adult', 'Mature', '30s')",
+      "accent": "String — Accent or dialect (e.g., 'Neutral American', 'British RP', 'Australian', 'AAVE')",
+      "tone": "String — Vocal delivery style (e.g., 'Energetic', 'Calm and authoritative', 'Conversational', 'Whispery ASMR')",
+      "language": "String — Spoken language for the VO",
+      "script": "String — Full VO script. STRICT LIMIT: 15-25 words max for a 10s ad",
+      "ai_voice_id": "String — Specific AI voice model ID if using synthetic VO (e.g., ElevenLabs voice ID)"
+    },
+    "music": {
+      "style": "String — Music genre or style (e.g., 'Lo-fi hip hop', 'Epic orchestral', 'Upbeat pop', 'Corporate tech', 'Trap beat')",
+      "tempo": "Enum [slow, medium, fast, builds_to_climax] — Tempo. 'builds_to_climax' works well with CTA timing",
+      "mood": "String — Emotional quality of the music (e.g., 'Triumphant', 'Chill', 'Mysterious', 'Playful')",
+      "licensed_track": "String — Specific licensed track name/artist if pre-selected",
+      "library_preference": "String — Preferred music library (e.g., 'Epidemic Sound', 'Artlist', 'client-provided')"
+    },
+    "sfx": [
+      {
+        "timestamp": "Float — When the SFX triggers in seconds",
+        "description": "String — Sound effect description (e.g., 'Swoosh on transition', 'Cash register ding on price reveal', 'Satisfying click on CTA')"
+      }
+    ],
+    "audio_mix_priority": "Enum [voiceover, music, sfx] — Which audio layer takes priority in the mix. VO-first means music ducks under speech"
+  },
+
+  "legal_compliance": {
+    "disclaimers": ["String — Required legal disclaimers (e.g., 'Results may vary', 'T&Cs apply', 'Minimum purchase required')"],
+    "disclaimer_placement": "Enum [bottom_text, end_card, voiceover, superimposed] — Where disclaimers appear",
+    "age_gate_required": "Boolean — Whether the ad requires age verification (alcohol, gambling, etc.)",
+    "country_restrictions": ["String — Countries where this ad cannot run due to legal/regulatory constraints"],
+    "platform_ad_policies_reviewed": "Boolean — Confirmation that the creative has been reviewed against target platform ad policies",
+    "requires_client_approval_stages": ["Enum [concept, storyboard, rough_cut, color_grade, final] — Approval gates before final delivery"],
+    "usage_rights_duration": "String — How long the brand has rights to use this creative (e.g., '6 months', '1 year', 'In perpetuity')",
+    "talent_release_secured": "Boolean — Whether model/talent release forms have been signed"
+  },
+
+  "localization": {
+    "versions_needed": [
+      {
+        "language": "String — Target language for this version (e.g., 'Spanish', 'Mandarin')",
+        "locale": "String — Regional variant (e.g., 'es-MX' vs 'es-ES', 'zh-CN' vs 'zh-TW')",
+        "adapted_script": "String — Translated and culturally adapted VO/text script",
+        "cultural_notes": "String — Cultural adaptations needed (e.g., 'Use local holiday reference instead of Christmas', 'Mirror image for RTL layout')"
+      }
+    ]
+  },
+
+  "timeline": {
+    "brief_received": "ISO Date — Date the brief was received from client",
+    "storyboard_due": "ISO Date — Storyboard/animatic delivery deadline",
+    "rough_cut_due": "ISO Date — First rough cut delivery deadline",
+    "final_delivery": "ISO Date — Final approved asset delivery deadline",
+    "revision_rounds_included": "Integer — Number of revision rounds included in the scope"
+  }
+}

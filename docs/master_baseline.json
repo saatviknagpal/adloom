@@ -1,0 +1,92 @@
+{
+  "client": {
+    "brand_name": "",
+    "industry": "Consumer"
+  },
+  "product": {
+    "name": "",
+    "category": "General",
+    "tagline": "",
+    "usp": "Clear benefit in one line",
+    "key_features": ["Quality", "Value", "Trust"]
+  },
+  "campaign": {
+    "goal": "awareness",
+    "offer": { "has_offer": false, "offer_text": "", "promo_code": "" },
+    "cta": { "text": "Learn more", "url": "" }
+  },
+  "target_cohort": {
+    "user_intent": "cold_audience",
+    "demographics": {
+      "age_range": { "min": 18, "max": 44 },
+      "gender": "all",
+      "locations": ["US", "IN", "CN"],
+      "languages": ["English", "Hindi", "Mandarin"]
+    },
+    "psychographics": {
+      "interests": ["Lifestyle", "Entertainment"],
+      "behaviors": ["Mobile-first viewers"],
+      "pain_points": ["Generic messaging"],
+      "lifestyle": "Urban and suburban mobile users",
+      "values": ["Authenticity", "Convenience"]
+    },
+    "device_preference": "mobile"
+  },
+  "delivery": {
+    "platforms": ["instagram_reels", "tiktok", "youtube_shorts"],
+    "aspect_ratios": ["9:16"],
+    "resolution": "1080p",
+    "fps": 30
+  },
+  "creative_direction": {
+    "overall_theme": "Clean, modern mobile-first ad",
+    "mood": "Upbeat",
+    "tone": "casual",
+    "visual_style": "ai_generated",
+    "pacing": "fast_cuts",
+    "the_hook": {
+      "type": "relatable_moment",
+      "content": "Immediate relatable visual in first 1.5s",
+      "audio_element": "Light ambient or subtle whoosh"
+    },
+    "mandatory_inclusions": ["Product or brand visible early", "Clear CTA or end card"],
+    "strict_exclusions": ["Stereotypes", "Misleading claims", "Stock-footage clichés where avoidable"]
+  },
+  "color_palette": {
+    "primary": "#1a1a2e",
+    "secondary": "#4a4e69",
+    "accent": "#9a8c98",
+    "background": "#0f0f12",
+    "text_color": "#f2e9e4"
+  },
+  "typography": {
+    "primary_font": "Inter Bold",
+    "secondary_font": "Inter Regular"
+  },
+  "audio": {
+    "voiceover": {
+      "enabled": true,
+      "gender": "neutral",
+      "tone": "Conversational",
+      "accent": "Neutral American"
+    },
+    "music": {
+      "style": "Upbeat indie pop",
+      "tempo": "medium",
+      "mood": "Optimistic"
+    }
+  },
+  "characters": {
+    "talent_type": "ai_avatar",
+    "cast": [
+      {
+        "role": "Protagonist",
+        "description": "Everyday person, approachable, diverse-appropriate casting",
+        "age_range": "25-35",
+        "gender": "open",
+        "wardrobe": "Casual contemporary",
+        "demeanor": "Friendly and confident"
+      }
+    ]
+  }
+}

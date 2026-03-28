@@ -1,0 +1,79 @@
+{
+  "brand": {
+    "name": "String — Brand name as it should appear on screen",
+    "logo_url": "URL — Transparent PNG/SVG logo for end card and overlays",
+    "tagline": "String — Brand or campaign tagline, if any"
+  },
+
+  "product": {
+    "name": "String — Product name as it should appear on screen",
+    "usp": "String — The ONE thing this ad communicates",
+    "images": ["URL — High-res product images (lifestyle or packshot)"]
+  },
+
+  "creative_direction": {
+    "theme": "String — Creative theme (e.g., 'High-energy fitness lifestyle', 'Minimal luxury unboxing', 'Raw UGC testimonial')",
+    "mood": "String — Emotional atmosphere (e.g., 'Empowering', 'Cozy', 'Tense', 'Celebratory')",
+    "tone": "Enum [humorous, serious, inspirational, edgy, luxurious, casual, urgent, nostalgic, playful, authoritative, asmr, sarcastic, wholesome]",
+    "visual_style": "Enum [live_action, animation_2d, animation_3d, motion_graphics, mixed_media, stop_motion, ai_generated, ugc_native, screen_capture]",
+    "pacing": "Enum [fast_cuts, slow_build, single_shot, dynamic_accelerating, rhythmic]",
+
+    "strict_inclusions": ["String — Must appear (e.g., 'Product visible within first 3s', 'Logo on screen last 2s')"],
+    "strict_exclusions": ["String — Hard no's (e.g., 'No red color', 'No text on first scene', 'No stock footage look')"]
+  },
+
+  "the_hook": {
+    "type": "Enum [visual_surprise, bold_claim, question, product_in_action, pattern_interrupt, relatable_moment, sound_hook, text_hook] — Hook mechanic",
+    "visual": "String — What the viewer SEES in seconds 0.0–1.5 (e.g., 'Extreme close-up of serum dropping onto skin in slow-mo', 'Product smashing through a stack of competitor boxes')",
+    "audio": "String — What the viewer HEARS in seconds 0.0–1.5 (e.g., 'Satisfying pop sound', 'Record scratch', 'Whispered question', 'Silence then bass drop')"
+  },
+
+  "characters": {
+    "talent_type": "Enum [real_actor, ai_avatar, animated_character, ugc_style_creator, hand_model, no_talent]",
+    "cast": [
+      {
+        "role": "String — e.g., 'Main presenter', 'Product user'",
+        "description": "String — Brief visual description",
+        "age_range": "String — e.g., '25-30'",
+        "gender": "String",
+        "wardrobe": "String — Clothing/styling direction",
+        "demeanor": "String — Energy and body language (e.g., 'Confident and relaxed', 'Excited unboxing energy')"
+      }
+    ]
+  },
+
+  "scenes": [
+    {
+      "scene_number": "Integer",
+      "start_time": "Float — Start timestamp in seconds",
+      "end_time": "Float — End timestamp in seconds",
+      "visual_description": "String — What is visually happening. Be specific about composition, lighting, setting, product placement",
+      "on_screen_text": "String — Exact text displayed. Keep under 6 words per line",
+      "text_animation": "Enum [fade_in, slide_up, slide_left, typewriter, pop, glitch, kinetic, none]",
+      "camera": {
+        "shot_type": "Enum [extreme_close_up, close_up, medium_close_up, medium, medium_wide, wide, overhead, pov, dutch_angle]",
+        "movement": "Enum [static, pan_left, pan_right, tilt_up, tilt_down, zoom_in, zoom_out, tracking, dolly_in, dolly_out, orbit, handheld_shake, crane_up]",
+        "transition_in": "Enum [cut, dissolve, wipe, zoom, whip_pan, morph, glitch, match_cut, none]"
+      }
+    }
+  ],
+
+
+  "audio": {
+    "voiceover": {
+      "enabled": "Boolean",
+      "script": "String — Full VO script. MAX 25 words for 10s",
+      "gender": "String",
+      "tone": "String — Vocal delivery (e.g., 'Energetic', 'Calm', 'Conversational', 'ASMR whisper')",
+      "accent": "String — e.g., 'Neutral American', 'British RP'"
+    },
+    "music_genre": "String — Genre (e.g., 'Lo-fi hip hop', 'Upbeat pop', 'Cinematic strings', 'Trap beat')"
+
+  },
+
+  "offer": {
+    "has_offer": "Boolean",
+    "offer_text": "String — e.g., '20% Off', 'Free Shipping'. Under 5 words",
+    "promo_code": "String — Code to display on screen"
+  }
+}
