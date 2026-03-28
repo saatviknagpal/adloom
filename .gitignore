@@ -20,6 +20,7 @@ Thumbs.db
 !.vscode/extensions.json
 
 # Build & caches
+*.tsbuildinfo
 dist/
 build/
 .next/

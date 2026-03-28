@@ -335,12 +335,16 @@ async function handleScriptChat(
 
           if (event.type === "tool_call" && event.name === "save_beat_list") {
             toolCallFired = true;
-            const msg = await addMessage(id, "assistant", fullResponse);
-            fullResponse = "";
+            let msgId: string | undefined;
+            if (fullResponse.trim()) {
+              const msg = await addMessage(id, "assistant", fullResponse);
+              msgId = msg.id;
+              fullResponse = "";
+            }
             const snapshot = await createSnapshot(
               id,
               JSON.stringify(event.args),
-              msg.id,
+              msgId,
               (event.args as { label?: string }).label,
             );
             controller.enqueue(sseEncode({

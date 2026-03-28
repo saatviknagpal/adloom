@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSelectedSnapshot, getSession, updateSessionBrief } from "@/server/services/session";
-import { localizeBrief } from "@/server/services/gemini";
+import { generateMasterBrief } from "@/server/services/gemini";
 
 type Params = Promise<{ id: string }>;
 
@@ -14,21 +14,32 @@ export async function POST(_req: Request, ctx: { params: Params }) {
 
   const snapshot = await getSelectedSnapshot(id);
   if (!snapshot) {
-    return NextResponse.json({ error: "No snapshots found. Chat until a beat list is generated." }, { status: 400 });
+    return NextResponse.json(
+      { error: "No snapshots found. Chat until a beat list is generated." },
+      { status: 400 },
+    );
   }
 
   try {
-    const raw = await localizeBrief(snapshot.content);
-    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    const briefStr = JSON.stringify(parsed);
-    const beatsStr = snapshot.content;
+    const chatHistory = session.messages
+      .map((m: { role: string; content: string }) => `[${m.role}]: ${m.content}`)
+      .join("\n\n");
 
-    await updateSessionBrief(id, briefStr, beatsStr);
+    const rawMaster = await generateMasterBrief(chatHistory, snapshot.content);
+    const cleaned = rawMaster
+      .replace(/```json\n?/g, "")
+      .replace(/```\n?/g, "")
+      .trim();
+    const briefParsed = JSON.parse(cleaned);
 
-    return NextResponse.json({ status: "script_approved", brief: parsed });
+    await updateSessionBrief(id, JSON.stringify(briefParsed), snapshot.content);
+
+    return NextResponse.json({
+      status: "script_approved",
+      brief: briefParsed,
+    });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to localize brief";
+    const msg = err instanceof Error ? err.message : "Failed to generate brief";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

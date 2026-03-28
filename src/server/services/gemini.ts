@@ -1,3 +1,6 @@
+import basicCopy from "@docs/basic_copy.json";
+import masterBaseline from "@docs/master_baseline.json";
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_NAME = "google/gemini-2.0-flash-001";
 
@@ -14,22 +17,35 @@ function isOpenRouter(): boolean {
 const SYSTEM_PROMPT = `You are the creative strategist for Adloom, a locale-adaptive video ad generator.
 
 Your job in this chat:
-1. Help the user define their ad concept: product, brand, audience, tone, offer.
-2. Build a beat list (hook → problem → product reveal → CTA) as a shared narrative structure.
-3. Write spoken lines for each beat that will later be localized to English (US), Hindi (India), Mandarin (China).
-4. Keep iterating until the user is satisfied and confirms.
+1. Help the user define their ad concept.
+2. Build a beat list (hook → problem → product reveal → CTA) with spoken lines localized later to US / India / China.
+3. Iterate until they are satisfied.
 
-Rules:
-- Be concise and direct. No marketing fluff.
-- Ask focused questions when info is missing. Don't ask everything at once.
-- When you have enough info, proactively suggest a beat list with spoken lines.
-- Present beats in a clear numbered format the user can edit.
-- When the user says they're happy / confirms / approves, output the final beat list clearly.
-- Do NOT generate images or videos. Your job is script and concept only.
+Discovery checklist — BEFORE you propose the FIRST beat list, cover only these areas (same structure as our brief schema). Ask 1–2 areas per message. If the user already answered earlier, do not ask again.
+
+Areas (in order):
+A. Brand — name and tagline (if any)
+B. Product — name, core USP, optional product image URLs if they have them
+C. Creative direction — theme and mood
+D. The hook — hook type, what we see in the first ~1.5s, what we hear in the first ~1.5s
+E. Characters — talent type (e.g. UGC vs AI avatar vs no on-screen talent) and brief cast description (role + look)
+F. Do not ask for a full scene-by-scene shot list in chat; scene timing and camera will be derived from the approved beat list later.
+
+If the user says skip, "you decide", or "don't know" — note it once and move on. Do not re-ask.
+
+Hard rule — first beat list:
+- Do NOT present a numbered beat list and do NOT call save_beat_list until A–E are each answered OR explicitly skipped / deferred to you.
+- Exception: if the user explicitly says "skip all questions", "just write the script", or "go straight to beats", you may go straight to a beat list.
+
+After the first beat list, revisions are normal — user can ask to change beats; call save_beat_list whenever you show an updated beat list.
+
+Other rules:
+- Be concise. No marketing fluff.
+- Do NOT generate images or videos.
 - Do NOT make assumptions about religion, politics, caste, or stereotypes.
-- Adapt locale differences through setting, language register, and daily-life context — not ethnic shortcuts.
-- ALWAYS call the save_beat_list tool when you present a beat list (new or revised).
-- Do NOT skip the tool call even if the user didn't explicitly ask for changes — if you're showing beats, save them.`;
+- Adapt locales through setting and context — not ethnic shortcuts.
+- ALWAYS call save_beat_list when you present a beat list (new or revised).
+- Do NOT skip the tool call when showing beats.`;
 
 export type StreamEvent =
   | { type: "text"; text: string }
@@ -548,3 +564,219 @@ export async function localizeBrief(beatsJson: string): Promise<string> {
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
 }
+
+// ---------------------------------------------------------------------------
+// Master Brief generation — single Gemini call at approval time
+// ---------------------------------------------------------------------------
+
+const MASTER_BRIEF_PROMPT = `You are an expert ad agency creative director. Given a chat conversation and an approved beat list for a video ad, generate a complete production brief in JSON.
+
+Merge rules (critical):
+1. Anything the user clearly stated in the chat MUST appear in the output and overrides defaults.
+2. For fields the user did not specify, or where they said skip / "you decide" / "I don't know" — use BASELINE_DEFAULTS below as the starting point, then adjust only as needed to stay consistent with brand, product, and beats.
+3. Where neither chat nor baseline gives a sensible value, infer from the brand, product, and beat list using creative best practices.
+
+The distilled creative shape we care about (align script.the_hook and creative_direction.the_hook with this naming where helpful: visual + audio for hook; theme + mood under creative):
+QUESTION_SCHEMA:
+{QUESTION_SCHEMA}
+
+BASELINE_DEFAULTS (fallback when user skipped or did not specify):
+{BASELINE_DEFAULTS}
+
+Approved beat list:
+{BEATS}
+
+Chat history (for context — extract brand, product, audience, tone, offer, and any customization answers from this):
+{CHAT_HISTORY}
+
+Output a single JSON object (no markdown fencing, pure JSON) following this EXACT schema:
+
+{{
+  "client": {{
+    "brand_name": "string",
+    "industry": "string"
+  }},
+  "product": {{
+    "name": "string",
+    "category": "string",
+    "tagline": "string or empty",
+    "usp": "the ONE thing this ad communicates",
+    "key_features": ["top 2-3 features"]
+  }},
+  "campaign": {{
+    "goal": "awareness|consideration|conversion|launch|app_install",
+    "offer": {{ "has_offer": false, "offer_text": "", "promo_code": "" }},
+    "cta": {{ "text": "Shop Now or similar", "url": "" }}
+  }},
+  "target_cohort": {{
+    "user_intent": "cold_audience|warm_prospect|retargeting",
+    "demographics": {{
+      "age_range": {{ "min": 18, "max": 34 }},
+      "gender": "all|male|female",
+      "locations": ["US", "IN", "CN"],
+      "languages": ["English", "Hindi", "Mandarin"]
+    }},
+    "psychographics": {{
+      "interests": ["list"],
+      "behaviors": ["list"],
+      "pain_points": ["list"],
+      "lifestyle": "string",
+      "values": ["list"]
+    }},
+    "device_preference": "mobile|desktop|all"
+  }},
+  "delivery": {{
+    "platforms": ["instagram_reels", "tiktok", "youtube_shorts"],
+    "aspect_ratios": ["9:16"],
+    "resolution": "1080p",
+    "fps": 30
+  }},
+  "creative_direction": {{
+    "overall_theme": "string",
+    "mood": "string",
+    "tone": "humorous|serious|inspirational|edgy|luxurious|casual|urgent|nostalgic|playful|authoritative",
+    "visual_style": "live_action|animation_2d|animation_3d|motion_graphics|mixed_media|ai_generated|ugc_native",
+    "pacing": "fast_cuts|slow_build|single_shot|dynamic_accelerating|rhythmic",
+    "the_hook": {{
+      "type": "visual_surprise|bold_claim|question|product_in_action|pattern_interrupt|relatable_moment|sound_hook|text_hook",
+      "content": "what happens in first 1.5 seconds",
+      "audio_element": "what viewer hears in first 1.5 seconds"
+    }},
+    "mandatory_inclusions": ["product visible in first 3s", "logo on end card"],
+    "strict_exclusions": ["no stereotypes", "no stock footage look"]
+  }},
+  "color_palette": {{
+    "primary": "#hex",
+    "secondary": "#hex",
+    "accent": "#hex",
+    "background": "#hex",
+    "text_color": "#hex"
+  }},
+  "typography": {{
+    "primary_font": "font name",
+    "secondary_font": "font name"
+  }},
+  "script": {{
+    "duration_seconds": <total from beats>,
+    "scene_breakdown": [
+      {{
+        "scene_number": 1,
+        "start_time": 0.0,
+        "end_time": <from beat durationSec>,
+        "visual_description": "detailed — what is visually happening, composition, lighting, setting, product placement",
+        "on_screen_text": "short text if any, under 6 words",
+        "text_animation": "fade_in|slide_up|pop|none",
+        "dialogue": {{
+          "speaker": "narrator or character name",
+          "line": "spoken line from beat",
+          "delivery_note": "vocal direction"
+        }},
+        "camera": {{
+          "shot_type": "close_up|medium|wide|overhead|pov",
+          "movement": "static|pan_left|zoom_in|tracking|dolly_in|handheld_shake",
+          "transition_in": "cut|dissolve|whip_pan|morph|none"
+        }}
+      }}
+    ],
+    "end_card": {{
+      "duration_seconds": 2.0,
+      "logo_placement": "center",
+      "text": "tagline or CTA",
+      "cta_button": true
+    }}
+  }},
+  "characters": {{
+    "talent_type": "ai_avatar|real_actor|no_talent|hand_model",
+    "cast": [
+      {{
+        "role": "main presenter or product user",
+        "description": "brief visual description",
+        "age_range": "25-30",
+        "gender": "string",
+        "wardrobe": "clothing direction",
+        "demeanor": "energy and body language"
+      }}
+    ]
+  }},
+  "audio": {{
+    "voiceover": {{
+      "enabled": true,
+      "gender": "string",
+      "tone": "Energetic|Calm|Conversational",
+      "accent": "Neutral American",
+      "script": "full VO script, 15-25 words max for a 10s ad"
+    }},
+    "music": {{
+      "style": "genre",
+      "tempo": "slow|medium|fast|builds_to_climax",
+      "mood": "string"
+    }}
+  }},
+  "localization": {{
+    "versions_needed": [
+      {{
+        "language": "Hindi",
+        "locale": "hi-IN",
+        "adapted_script": "full Hindi VO in Devanagari",
+        "cultural_notes": "cultural adaptations for India"
+      }},
+      {{
+        "language": "Mandarin",
+        "locale": "zh-CN",
+        "adapted_script": "full Mandarin VO in Simplified Chinese",
+        "cultural_notes": "cultural adaptations for China"
+      }}
+    ]
+  }}
+}}
+
+Rules:
+- Infer brand colors from your knowledge of the brand (e.g., Coca-Cola = red + white).
+- Infer audience psychographics from the target demographic.
+- scene_breakdown MUST have one entry per beat in the approved beat list, with cumulative timestamps.
+- visual_description for each scene must be specific and cinematic — camera angles, lighting, composition, setting.
+- Do NOT output markdown fences. Output raw JSON only.
+- Localization: adapt the script culturally, not just translate word-for-word.`;
+
+export async function generateMasterBrief(
+  chatHistory: string,
+  beatsJson: string,
+): Promise<string> {
+  const prompt = MASTER_BRIEF_PROMPT
+    .replace("{QUESTION_SCHEMA}", JSON.stringify(basicCopy, null, 2))
+    .replace("{BASELINE_DEFAULTS}", JSON.stringify(masterBaseline, null, 2))
+    .replace("{BEATS}", beatsJson)
+    .replace("{CHAT_HISTORY}", chatHistory);
+
+  if (!isOpenRouter()) {
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const client = new GoogleGenerativeAI(getApiKey());
+    const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
+
+  const res = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getApiKey()}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://adloom.dev",
+      "X-Title": "Adloom",
+    },
+    body: JSON.stringify({
+      model: MODEL_NAME,
+      messages: [{ role: "user", content: prompt }],
+      stream: false,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenRouter error ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? "";
+}
+

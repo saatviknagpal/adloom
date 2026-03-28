@@ -65,6 +65,7 @@ export default function ChatPage() {
   const [productImage, setProductImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{ uri: string; label: string } | null>(null);
+  const [nextStepsDismissed, setNextStepsDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -85,7 +86,7 @@ export default function ChatPage() {
         if (data.messages) {
           setMessages(
             data.messages
-              .filter((m: { role: string }) => m.role !== "system")
+              .filter((m: { role: string; content: string }) => m.role !== "system" && m.content.trim())
               .map((m: { id: string; role: string; content: string }) => ({
                 id: m.id,
                 role: m.role as "user" | "assistant",
@@ -352,6 +353,8 @@ export default function ChatPage() {
       const data = await res.json();
       if (data.status === "script_approved") {
         setStatus("script_approved");
+        setNextStepsDismissed(false);
+        setActiveTab("chat");
       } else if (data.error) {
         alert(`Approval failed: ${data.error}`);
       }
@@ -408,9 +411,9 @@ export default function ChatPage() {
       <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-thin">
         <div className="space-y-3">
           {messages.length === 0 && (
-            <p className="text-center text-sm text-zinc-600 pt-16">
+            <p className="text-center text-sm text-zinc-600 pt-16 px-4">
               {isKeyframePhase
-                ? "Script approved! Send a message to start generating characters and keyframes."
+                ? "Cast and talent were already covered in discovery (before you approved the script). Say what to generate next—character reference images, keyframes, or both—or ask to tweak a look."
                 : "Describe your product, brand, audience, and what the ad should convey."}
             </p>
           )}
@@ -705,7 +708,7 @@ export default function ChatPage() {
           <h1 className="text-sm font-semibold text-zinc-300">Adloom</h1>
           {isKeyframePhase && (
             <span className="text-[10px] font-medium bg-emerald-900/50 text-emerald-400 px-2 py-0.5 rounded">
-              Keyframe Generation
+              Characters & keyframes
             </span>
           )}
         </div>
@@ -735,10 +738,51 @@ export default function ChatPage() {
             disabled={approving || snapshots.length === 0}
             className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-green-500 disabled:opacity-40"
           >
-            {approving ? "Localizing..." : "Approve script"}
+            {approving ? "Building briefs..." : "Approve script"}
           </button>
         )}
       </header>
+
+      {isKeyframePhase && !nextStepsDismissed && (
+        <div className="shrink-0 border-b border-emerald-900/50 bg-emerald-950/25 px-4 py-3">
+          <div className="mx-auto flex max-w-4xl flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-sm font-medium text-emerald-200">Script approved — production brief saved</p>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Your <span className="text-zinc-300">brief</span> (brand, product, creative direction, scenes, characters,
+                audio, localization) is stored for this session.
+              </p>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                You already went through brand, hook, and cast in the earlier chat. Those answers are in the brief—you
+                only need to repeat them if you want to change direction.
+              </p>
+              <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-1 pt-1">
+                <li>
+                  <span className="text-zinc-300">Chat:</span> Ask for{" "}
+                  <span className="text-zinc-300">character reference images</span>,{" "}
+                  <span className="text-zinc-300">keyframes</span> for specific beats, or both. The assistant pulls from
+                  your brief and calls Nano Banana when it needs images.
+                </li>
+                <li>
+                  <span className="text-zinc-300">Optional:</span> In Storyboard, add a product image so shots can match
+                  your packshot.
+                </li>
+                <li>
+                  <span className="text-zinc-300">Storyboard tabs:</span> Watch <span className="text-zinc-300">Characters</span>{" "}
+                  and <span className="text-zinc-300">Keyframes</span> as assets appear.
+                </li>
+              </ol>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNextStepsDismissed(true)}
+              className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2 sm:pt-0.5"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Split pane */}
       <div className="flex flex-1 min-h-0">
@@ -770,7 +814,7 @@ export default function ChatPage() {
             onKeyDown={handleKeyDown}
             placeholder={
               isKeyframePhase
-                ? "Type 'generate keyframes' or give feedback..."
+                ? "e.g. Generate character refs from the brief — or keyframes for the beats"
                 : "Describe your ad concept..."
             }
             rows={1}
