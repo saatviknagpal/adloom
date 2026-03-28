@@ -9,17 +9,17 @@ npm install
 cp .env.example .env          
 npx prisma generate
 npx prisma db push
-docker compose up -d           # Postgres + MinIO (see .env for ports)
-npm run dev                    # http://localhost:3000
+docker compose up -d           # Postgres + MinIO + Inngest dev server (see below)
+npm run dev                    # on the host — note the port in the terminal (default 3000)
 ```
 
-In a **second terminal**, run the Inngest Dev Server so **character/keyframe image jobs** execute locally:
+**Inngest** runs in Docker. It polls **`http://host.docker.internal:${NEXT_DEV_PORT}/api/inngest`** (from [`.env`](.env): `NEXT_DEV_PORT`, default **3000**). If Next says *“Port 3000 is in use … using 3004”*, set `NEXT_DEV_PORT=3004` in `.env` and run **`docker compose up -d inngest`** again (or free port 3000 and keep `3000`). UI: **http://localhost:8288**.
 
-```bash
-npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest
-```
+**Turbopack:** use **`npm run dev:turbo`** if you want it; the default **`npm run dev`** avoids Turbopack, which can hit missing `.next/.../app-build-manifest.json` errors on some setups.
 
-Without this process, `inngest.send` from the app will not deliver jobs and image generation will time out. For production, configure `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` from the Inngest dashboard and point your app URL at `/api/inngest`.
+If Inngest is stopped or unreachable, `inngest.send` can **fetch failed**; with `npm run dev` the app **falls back to in-process** image generation (see server logs). Set `INNGEST_DISABLE_INLINE_FALLBACK=1` to disable that. Optional CLI instead of Docker: `npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest`.
+
+For production, configure `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` from the Inngest dashboard and point your app URL at `/api/inngest`.
 
 Browse the database: `npm run db:studio` → http://localhost:5555
 

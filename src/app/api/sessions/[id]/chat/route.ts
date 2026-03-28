@@ -17,8 +17,7 @@ import {
   streamKeyframeChat,
 } from "@/server/services/gemini";
 import { extractKeyFromUri } from "@/lib/storage";
-import { inngest } from "@/inngest/client";
-import { IMAGE_GENERATE_EVENT } from "@/inngest/functions/generateImageJob";
+import { sendImageGenerationJob } from "@/server/services/image-job-enqueue";
 
 type Params = Promise<{ id: string }>;
 
@@ -120,13 +119,10 @@ async function handleKeyframeChat(
                 },
               }));
 
-              await inngest.send({
-                name: IMAGE_GENERATE_EVENT,
-                data: {
-                  assetId: asset.id,
-                  sessionId: id,
-                  prompt: args.visualPrompt,
-                },
+              await sendImageGenerationJob({
+                assetId: asset.id,
+                sessionId: id,
+                prompt: args.visualPrompt,
               });
 
               const outcome = await waitForImageAsset(asset.id);
@@ -232,14 +228,11 @@ async function handleKeyframeChat(
                 },
               }));
 
-              await inngest.send({
-                name: IMAGE_GENERATE_EVENT,
-                data: {
-                  assetId: asset.id,
-                  sessionId: id,
-                  prompt: args.visualPrompt,
-                  referenceKeys: refKeys.length > 0 ? refKeys : undefined,
-                },
+              await sendImageGenerationJob({
+                assetId: asset.id,
+                sessionId: id,
+                prompt: args.visualPrompt,
+                referenceKeys: refKeys.length > 0 ? refKeys : undefined,
               });
 
               const outcome = await waitForImageAsset(asset.id);
