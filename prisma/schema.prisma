@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  status    String    @default("chatting") // chatting | script_approved | keyframes_review | keyframes_approved | generating | done | failed
+  brief     String?   // JSON: extracted structured brief once script is approved
+  beats     String?   // JSON: canonical beat list
+  regions   String    @default("[\"US\",\"IN\",\"CN\"]") // JSON array of selected regions
+  error     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+  assets    Asset[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String   // user | assistant | system
+  content   String
+  imageUrl  String?  // product image if attached
+  createdAt DateTime @default(now())
+}
+
+model Asset {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  kind      String   // product_image | keyframe | video | voiceover | music | preview
+  region    String?  // US | IN | CN — null for shared assets like product_image
+  shotIndex Int?     // which beat/shot this belongs to
+  version   Int      @default(1)
+  uri       String
+  prompt    String?  // the prompt used to generate this asset
+  meta      String?  // JSON: extra metadata
+  createdAt DateTime @default(now())
+}
