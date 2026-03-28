@@ -367,8 +367,10 @@ export async function* streamKeyframeChat(
     const functionResponses: import("@google/generative-ai").FunctionResponsePart[] = [];
 
     for (const tc of toolCalls) {
+      console.log(`[tool_call] ${tc.name}`, JSON.stringify(tc.args, null, 2));
       yield { type: "tool_call", name: tc.name, args: tc.args };
       const outcome = await executeTool(tc.name, tc.args);
+      console.log(`[tool_result] ${tc.name}`, JSON.stringify(outcome, null, 2));
       functionResponses.push({
         functionResponse: { name: tc.name, response: outcome },
       });
@@ -501,8 +503,10 @@ export async function* streamChat(
       const calls = chunk.functionCalls();
       if (calls) {
         for (const call of calls) {
-          toolCalls.push({ name: call.name, args: (call.args ?? {}) as Record<string, unknown> });
-          yield { type: "tool_call", name: call.name, args: (call.args ?? {}) as Record<string, unknown> };
+          const args = (call.args ?? {}) as Record<string, unknown>;
+          console.log(`[tool_call] ${call.name}`, JSON.stringify(args, null, 2));
+          toolCalls.push({ name: call.name, args });
+          yield { type: "tool_call", name: call.name, args };
         }
       }
     }
