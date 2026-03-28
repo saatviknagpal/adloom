@@ -348,20 +348,27 @@ export default function ChatPage() {
     if (res.ok) setSnapshots(await res.json());
   }, [id]);
 
+  const [needsGreeting, setNeedsGreeting] = useState(false);
+
   useEffect(() => {
     fetch(`/api/sessions/${id}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.messages) {
-          setMessages(
-            data.messages
-              .filter((m: { role: string; content: string }) => m.role !== "system" && m.content.trim())
+        const filtered = data.messages
+          ? data.messages
+              .filter((m: { role: string; content: string }) =>
+                m.role !== "system" && m.content.trim() && !(m.role === "user" && m.content.trim() === "hi" && data.messages.indexOf(m) === 0))
               .map((m: { id: string; role: string; content: string }) => ({
                 id: m.id,
                 role: m.role as "user" | "assistant",
                 content: m.content,
-              })),
-          );
+              }))
+          : [];
+        setMessages(filtered);
+
+        // Flag for auto-greeting on new empty sessions
+        if (filtered.length === 0 && data.status === "chatting") {
+          setNeedsGreeting(true);
         }
         if (data.status) setStatus(data.status);
         if (data.snapshots) setSnapshots(data.snapshots);
@@ -495,6 +502,42 @@ export default function ChatPage() {
     setStreaming(false);
   }
 
+  async function sendGreeting() {
+    const greetingText = "hi";
+    const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
+    setMessages([assistantMsg]);
+    setStreaming(true);
+    try {
+      const res = await fetch(`/api/sessions/${id}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: greetingText }),
+      });
+      if (!res.ok || !res.body) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: "Error: request failed" } : m)),
+        );
+      } else {
+        await streamSSE(res, assistantMsg.id);
+      }
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMsg.id ? { ...m, content: m.content + "\n\nConnection lost." } : m,
+        ),
+      );
+    }
+    setStreaming(false);
+  }
+
+  useEffect(() => {
+    if (needsGreeting) {
+      setNeedsGreeting(false);
+      sendGreeting();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsGreeting]);
+
   // ── Approve & bootstrap ────────────────────────────────────────────────
 
   const sendBootstrapRef = useRef(false);
@@ -626,7 +669,7 @@ export default function ChatPage() {
   }
 
   async function handleClearConversation() {
-    if (!confirm("Clear this conversation? All messages, characters, and keyframes will be deleted.")) return;
+    if (!confirm("Clear this conversation? All messages, characters, and videos will be deleted.")) return;
     try {
       const res = await fetch(`/api/sessions/${id}`, {
         method: "PATCH",
@@ -637,7 +680,6 @@ export default function ChatPage() {
         setMessages([]);
         setSnapshots([]);
         setCharacters([]);
-        setKeyframes([]);
         setVideos([]);
         setProductImage(null);
         setStatus("chatting");
