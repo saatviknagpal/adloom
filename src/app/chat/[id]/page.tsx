@@ -10,12 +10,17 @@ type Message = {
   content: string;
 };
 
-type Beat = {
-  index: number;
-  label: string;
+type SceneRow = {
+  scene_number: number;
+  start_time: number;
+  end_time: number;
+  visual_description: string;
+  camerashot_type: string;
+};
+
+type CastRow = {
+  role: string;
   description: string;
-  spokenLine: string;
-  durationSec: number;
 };
 
 type Snapshot = {
@@ -564,12 +569,23 @@ export default function ChatPage() {
     }
   }
 
-  function parseBeats(content: string): Beat[] {
+  function parseScriptVersion(content: string): {
+    scenes: SceneRow[];
+    characters: { talent_type?: string; cast: CastRow[] };
+  } {
     try {
-      const parsed = JSON.parse(content);
-      return parsed.beats ?? [];
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const scenes = Array.isArray(parsed.scenes) ? (parsed.scenes as SceneRow[]) : [];
+      const ch = parsed.characters as { talent_type?: string; cast?: CastRow[] } | undefined;
+      return {
+        scenes,
+        characters: {
+          talent_type: ch?.talent_type,
+          cast: Array.isArray(ch?.cast) ? ch.cast : [],
+        },
+      };
     } catch {
-      return [];
+      return { scenes: [], characters: { cast: [] } };
     }
   }
 
@@ -583,7 +599,7 @@ export default function ChatPage() {
             <p className="text-center text-sm text-zinc-600 pt-16 px-4">
               {isKeyframePhase
                 ? "Cast and talent were already covered in discovery (before you approved the script). Say what to generate next—character reference images, keyframes, or both—or ask to tweak a look."
-                : "Describe your product, brand, audience, and what the ad should convey."}
+                : "Answer the assistant’s questions to fill your brief. You’ll lock scenes + characters as versions, then approve when ready."}
             </p>
           )}
           {messages.map((m) => (
@@ -598,16 +614,16 @@ export default function ChatPage() {
                 ) : m.role === "assistant" ? (
                   <ReactMarkdown
                     components={{
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc pl-4 mb-2 last:mb-0 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 last:mb-0 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li>{children}</li>,
-                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                      em: ({ children }) => <em className="italic">{children}</em>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
-                      code: ({ children, className }) => {
+                      p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-4 mb-2 last:mb-0 space-y-1">{children}</ul>,
+                      ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-4 mb-2 last:mb-0 space-y-1">{children}</ol>,
+                      li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+                      strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold">{children}</strong>,
+                      em: ({ children }: { children?: React.ReactNode }) => <em className="italic">{children}</em>,
+                      h1: ({ children }: { children?: React.ReactNode }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
+                      h2: ({ children }: { children?: React.ReactNode }) => <h2 className="text-sm font-bold mb-1.5">{children}</h2>,
+                      h3: ({ children }: { children?: React.ReactNode }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                      code: ({ children, className }: { children?: React.ReactNode; className?: string }) => {
                         const isBlock = className?.includes("language-");
                         return isBlock ? (
                           <pre className="bg-zinc-900 rounded-lg p-3 my-2 overflow-x-auto text-xs">
@@ -617,8 +633,8 @@ export default function ChatPage() {
                           <code className="bg-zinc-900 px-1 py-0.5 rounded text-xs">{children}</code>
                         );
                       },
-                      pre: ({ children }) => <>{children}</>,
-                      blockquote: ({ children }) => (
+                      pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+                      blockquote: ({ children }: { children?: React.ReactNode }) => (
                         <blockquote className="border-l-2 border-zinc-600 pl-3 my-2 text-zinc-400">{children}</blockquote>
                       ),
                       hr: () => <hr className="border-zinc-700 my-3" />,
@@ -642,11 +658,11 @@ export default function ChatPage() {
     <div className="flex-1 overflow-y-auto px-4 py-3 scrollbar-thin space-y-3">
       {snapshots.length === 0 && (
         <p className="text-xs text-zinc-600 text-center pt-8">
-          No versions yet. Chat until a beat list is generated.
+          No versions yet. When scenes and cast are confirmed, the assistant saves a version here.
         </p>
       )}
       {snapshots.map((snap) => {
-        const beats = parseBeats(snap.content);
+        const { scenes, characters } = parseScriptVersion(snap.content);
         const isExpanded = expandedSnap === snap.id;
         return (
           <div
@@ -667,24 +683,45 @@ export default function ChatPage() {
                   </span>
                 )}
               </div>
-              <span className="text-[10px] text-zinc-600">{beats.length} beats</span>
+              <span className="text-[10px] text-zinc-600">
+                {scenes.length} scene{scenes.length !== 1 ? "s" : ""} · {characters.cast.length} cast
+              </span>
             </div>
             {snap.label && <p className="text-xs text-zinc-400 mb-1">{snap.label}</p>}
-            {!isExpanded && beats.length > 0 && (
-              <p className="text-xs text-zinc-500 truncate">{beats[0]?.spokenLine}</p>
+            {!isExpanded && scenes.length > 0 && (
+              <p className="text-xs text-zinc-500 truncate">{scenes[0]?.visual_description}</p>
             )}
             {isExpanded && (
-              <div className="mt-2 space-y-2">
-                {beats.map((beat) => (
-                  <div key={beat.index} className="rounded bg-zinc-800/50 px-2.5 py-2">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-[10px] font-medium text-indigo-400 uppercase">{beat.label}</span>
-                      <span className="text-[10px] text-zinc-600">{beat.durationSec}s</span>
-                    </div>
-                    <p className="text-xs text-zinc-300 leading-relaxed">{beat.spokenLine}</p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">{beat.description}</p>
+              <div className="mt-2 space-y-3">
+                <div>
+                  <p className="text-[10px] font-medium text-zinc-500 uppercase mb-1">Characters</p>
+                  <p className="text-[10px] text-zinc-600 mb-1">{characters.talent_type ?? "—"}</p>
+                  <ul className="space-y-1">
+                    {characters.cast.map((c, i) => (
+                      <li key={i} className="rounded bg-zinc-800/50 px-2 py-1.5 text-xs text-zinc-300">
+                        <span className="text-indigo-400">{c.role}</span> — {c.description}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-zinc-500 uppercase mb-1">Scenes</p>
+                  <div className="space-y-2">
+                    {scenes.map((sc, si) => (
+                      <div key={`${sc.scene_number}-${si}`} className="rounded bg-zinc-800/50 px-2.5 py-2">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-[10px] font-medium text-indigo-400">
+                            Scene {sc.scene_number}
+                          </span>
+                          <span className="text-[10px] text-zinc-600">
+                            {sc.start_time}s–{sc.end_time}s · {sc.camerashot_type}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-300 leading-relaxed">{sc.visual_description}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
                 {!snap.selected && (
                   <button
                     onClick={(e) => {
@@ -814,7 +851,7 @@ export default function ChatPage() {
             </div>
             <div className="p-2">
               <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-[10px] font-medium text-indigo-400 uppercase">Beat {kf.beatIndex}</span>
+                <span className="text-[10px] font-medium text-indigo-400 uppercase">Scene {kf.beatIndex}</span>
                 <span className="text-xs text-zinc-300">{kf.label}</span>
               </div>
               <p className="text-[10px] text-zinc-600 truncate">{kf.prompt}</p>
@@ -842,7 +879,7 @@ export default function ChatPage() {
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === "script" ? "Versions" : tab === "characters" ? "Characters" : "Keyframes"}
               {count > 0 && (
                 <span className="ml-1 text-[10px] text-zinc-600">({count})</span>
               )}

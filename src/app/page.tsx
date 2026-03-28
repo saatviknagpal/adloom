@@ -34,7 +34,7 @@ export default function HomePage() {
       <div className="mt-8 grid grid-cols-3 gap-6 text-center text-sm text-zinc-500 max-w-md">
         <div>
           <div className="text-2xl mb-1">1</div>
-          <p>Chat to lock your script &amp; beats</p>
+          <p>Chat to fill your brief &amp; scene versions</p>
         </div>
         <div>
           <div className="text-2xl mb-1">2</div>

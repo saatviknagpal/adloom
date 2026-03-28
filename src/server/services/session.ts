@@ -1,8 +1,22 @@
 import { prisma } from "@/lib/db";
 import type { SessionStatus } from "@/types";
+import { BASIC_BRIEF_EMPTY, deepMergeDraft, parseJsonObject } from "@/server/services/basic-brief";
 
 export async function createSession() {
-  return prisma.session.create({ data: {} });
+  return prisma.session.create({ data: { draftBrief: "{}" } });
+}
+
+export async function mergeSessionDraftBrief(id: string, patch: Record<string, unknown>) {
+  const row = await prisma.session.findUnique({ where: { id }, select: { draftBrief: true } });
+  const base = parseJsonObject(row?.draftBrief);
+  const merged = deepMergeDraft(
+    { ...(BASIC_BRIEF_EMPTY as Record<string, unknown>), ...base },
+    patch,
+  );
+  return prisma.session.update({
+    where: { id },
+    data: { draftBrief: JSON.stringify(merged) },
+  });
 }
 
 export async function getSession(id: string) {
@@ -34,7 +48,7 @@ export async function updateSessionStatus(id: string, status: SessionStatus) {
 export async function updateSessionBrief(id: string, brief: string, beats: string) {
   return prisma.session.update({
     where: { id },
-    data: { brief, beats, status: "script_approved" },
+    data: { brief, beats, status: "script_approved", draftBrief: "{}" },
   });
 }
 

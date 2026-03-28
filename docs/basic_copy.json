@@ -1,5 +1,5 @@
 {
-  "description": "Only these discovery areas are collected in chat before the first beat list. Scene rows are produced from the approved beat list at approval time (timestamps, shots, camera), not asked one-by-one in chat.",
+  "description": "Discovery template: the assistant fills these fields from user answers. Scenes (max 5) and characters.cast (max 3) are saved as named versions when the user confirms both; approve merges the selected version into the stored brief.",
   "brand": {
     "name": "String — Brand name as it should appear on screen",
     "tagline": "String — Brand or campaign tagline, if any"

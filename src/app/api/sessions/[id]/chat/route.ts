@@ -10,13 +10,14 @@ import {
   getGeminiHistory,
   getProductImage,
   getSession,
+  mergeSessionDraftBrief,
   resetAssetForRetry,
   updateSessionStatus,
 } from "@/server/services/session";
+import { scenesJsonForKeyframes, validateScriptVersionPayload } from "@/server/services/basic-brief";
 import {
   buildCharacterStateBlock,
   buildKeyframeContext,
-  extractBeatsFromText,
   streamChat,
   streamKeyframeChat,
 } from "@/server/services/gemini";
@@ -24,12 +25,6 @@ import { extractKeyFromUri } from "@/lib/storage";
 import { sendImageGenerationJob } from "@/server/services/image-job-enqueue";
 
 type Params = Promise<{ id: string }>;
-
-function looksLikeBeatList(text: string): boolean {
-  const numbered = (text.match(/^\s*\d+\.\s+\*?\*?/gm) ?? []).length;
-  const hasBeatKeywords = /\b(hook|problem|reveal|cta|beat)\b/i.test(text);
-  return numbered >= 3 && hasBeatKeywords;
-}
 
 function sseEncode(data: Record<string, unknown>): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
@@ -176,9 +171,13 @@ async function handleKeyframeChat(
     (m) => m.role === "system" && m.content.includes("approved brief"),
   );
 
+  const scenesPayload =
+    session.beats?.trim() ||
+    (session.brief ? scenesJsonForKeyframes(session.brief) : "");
+
   let contextMessage = userMessage;
-  if (isFirstKeyframeMessage && session.brief && session.beats) {
-    contextMessage = buildKeyframeContext(session.brief, session.beats);
+  if (isFirstKeyframeMessage && session.brief && scenesPayload) {
+    contextMessage = buildKeyframeContext(session.brief, scenesPayload);
     await addMessage(id, "system", contextMessage);
   }
 
@@ -432,70 +431,89 @@ async function handleScriptChat(
     session.messages.map((m) => ({ role: m.role, content: m.content })),
   );
 
+  const draftJson = session.draftBrief?.trim() ? session.draftBrief : "{}";
+
   let fullResponse = "";
-  let toolCallFired = false;
+  /** If the model only emits tools and no text, we still must save a model turn or the next request has two user messages in a row and Gemini can hang. */
+  let hadDiscoveryTool = false;
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of streamChat(history, body.message)) {
+        for await (const event of streamChat(history, body.message, draftJson)) {
           if (event.type === "text") {
             fullResponse += event.text;
             controller.enqueue(sseEncode({ text: event.text }));
           }
 
-          if (event.type === "tool_call" && event.name === "save_beat_list") {
-            toolCallFired = true;
+          if (event.type === "tool_call" && event.name === "update_draft_brief") {
+            hadDiscoveryTool = true;
+            const raw = (event.args as { patch_json?: string; patch?: Record<string, unknown> }).patch_json;
+            let patch: Record<string, unknown> | null = null;
+            if (typeof raw === "string" && raw.trim()) {
+              try {
+                const p = JSON.parse(raw) as unknown;
+                if (p && typeof p === "object" && !Array.isArray(p)) patch = p as Record<string, unknown>;
+              } catch {
+                /* ignore */
+              }
+            }
+            const legacy = (event.args as { patch?: Record<string, unknown> }).patch;
+            if (!patch && legacy && typeof legacy === "object") patch = legacy;
+            if (patch) {
+              await mergeSessionDraftBrief(id, patch);
+              controller.enqueue(sseEncode({ draftUpdated: true }));
+            }
+          }
+
+          if (event.type === "tool_call" && event.name === "commit_script_version") {
+            hadDiscoveryTool = true;
+            const args = event.args as Record<string, unknown>;
+            const err = validateScriptVersionPayload(args);
+            if (err) {
+              controller.enqueue(sseEncode({ text: `\n\n[Could not save version: ${err}]\n` }));
+              continue;
+            }
             let msgId: string | undefined;
             if (fullResponse.trim()) {
               const msg = await addMessage(id, "assistant", fullResponse);
               msgId = msg.id;
               fullResponse = "";
             }
+            const payload = {
+              label: args.label,
+              scenes: args.scenes,
+              characters: args.characters,
+            };
             const snapshot = await createSnapshot(
               id,
-              JSON.stringify(event.args),
+              JSON.stringify(payload),
               msgId,
-              (event.args as { label?: string }).label,
+              typeof args.label === "string" ? args.label : undefined,
             );
             controller.enqueue(sseEncode({
               snapshot: {
                 id: snapshot.id,
                 version: snapshot.version,
                 label: snapshot.label,
-                content: event.args,
+                content: payload,
               },
             }));
+
+            await mergeSessionDraftBrief(id, {
+              characters: payload.characters as Record<string, unknown>,
+            });
           }
         }
 
-        if (fullResponse) {
-          const msg = await addMessage(id, "assistant", fullResponse);
-
-          if (!toolCallFired && looksLikeBeatList(fullResponse)) {
-            try {
-              const extracted = await extractBeatsFromText(fullResponse);
-              if (extracted) {
-                const parsed = JSON.parse(extracted);
-                const snapshot = await createSnapshot(
-                  id,
-                  extracted,
-                  msg.id,
-                  parsed.label ?? "Revised draft",
-                );
-                controller.enqueue(sseEncode({
-                  snapshot: {
-                    id: snapshot.id,
-                    version: snapshot.version,
-                    label: snapshot.label,
-                    content: parsed,
-                  },
-                }));
-              }
-            } catch {
-              // fallback extraction failed
-            }
-          }
+        const trimmed = fullResponse.trim();
+        const assistantContent =
+          trimmed || (hadDiscoveryTool ? "(Brief updated.)" : "");
+        if (assistantContent) {
+          await addMessage(id, "assistant", assistantContent);
+        }
+        if (hadDiscoveryTool && !trimmed) {
+          controller.enqueue(sseEncode({ text: `${assistantContent}\n` }));
         }
 
         controller.enqueue(sseEncode({ done: true }));
