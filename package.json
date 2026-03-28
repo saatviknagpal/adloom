@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -15,6 +16,7 @@
     "@google/genai": "^1.46.0",
     "@google/generative-ai": "^0.21.0",
     "@prisma/client": "^6.5.0",
+    "inngest": "^4.1.0",
     "minio": "^8.0.7",
     "next": "^15.2.0",
     "react": "^19.0.0",

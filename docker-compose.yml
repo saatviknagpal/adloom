@@ -36,6 +36,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # Inngest Dev Server — polls your host Next app at /api/inngest.
+  # Set NEXT_DEV_PORT in .env to match whatever port `npm run dev` prints (default 3000).
+  inngest:
+    image: inngest/inngest:v1.17.2
+    container_name: adloom-inngest
+    restart: unless-stopped
+    command:
+      [
+        "inngest",
+        "dev",
+        "--no-discovery",
+        "-u",
+        "http://host.docker.internal:${NEXT_DEV_PORT:-3000}/api/inngest",
+      ]
+    ports:
+      - "8288:8288"
+      - "8289:8289"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   postgres_data:
   minio_data:

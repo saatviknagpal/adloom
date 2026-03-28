@@ -1,7 +1,9 @@
 import {
   addMessage,
-  createAsset,
+  createPendingAsset,
   createSnapshot,
+  failAssetGeneration,
+  getAssetById,
   getAssetsByKind,
   getGeminiHistory,
   getProductImage,
@@ -14,8 +16,8 @@ import {
   streamChat,
   streamKeyframeChat,
 } from "@/server/services/gemini";
-import { generateImage } from "@/server/services/nano-banana";
 import { extractKeyFromUri } from "@/lib/storage";
+import { sendImageGenerationJob } from "@/server/services/image-job-enqueue";
 
 type Params = Promise<{ id: string }>;
 
@@ -27,6 +29,28 @@ function looksLikeBeatList(text: string): boolean {
 
 function sseEncode(data: Record<string, unknown>): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+const IMAGE_JOB_TIMEOUT_MS = 4 * 60 * 1000;
+const IMAGE_JOB_POLL_MS = 400;
+
+async function waitForImageAsset(
+  assetId: string,
+): Promise<{ ok: true; uri: string } | { ok: false; error: string }> {
+  const deadline = Date.now() + IMAGE_JOB_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const asset = await getAssetById(assetId);
+    if (!asset) return { ok: false, error: "Asset not found" };
+    if (asset.generationStatus === "ready" && asset.uri) {
+      return { ok: true, uri: asset.uri };
+    }
+    if (asset.generationStatus === "failed") {
+      return { ok: false, error: asset.generationError ?? "Image generation failed" };
+    }
+    await new Promise((r) => setTimeout(r, IMAGE_JOB_POLL_MS));
+  }
+  await failAssetGeneration(assetId, "Timed out waiting for image generation");
+  return { ok: false, error: "Timed out waiting for image generation" };
 }
 
 // ── Keyframe generation phase ──────────────────────────────────────────────
@@ -78,23 +102,76 @@ async function handleKeyframeChat(
               text: `\n\nGenerating character: ${args.name}...\n`,
             }));
 
+            let pendingCharacterId: string | null = null;
             try {
-              const result = await generateImage(args.visualPrompt, id);
-              const asset = await createAsset(id, "character", result.uri, {
+              const asset = await createPendingAsset(id, "character", {
                 prompt: args.visualPrompt,
                 meta: JSON.stringify({ name: args.name }),
               });
+              pendingCharacterId = asset.id;
+
               controller.enqueue(sseEncode({
                 character: {
                   id: asset.id,
                   name: args.name,
-                  uri: result.uri,
                   prompt: args.visualPrompt,
+                  pending: true,
                 },
               }));
-              fullResponse += `\n[Character "${args.name}" generated: ${result.uri}]\n`;
+
+              await sendImageGenerationJob({
+                assetId: asset.id,
+                sessionId: id,
+                prompt: args.visualPrompt,
+              });
+
+              const outcome = await waitForImageAsset(asset.id);
+              if (!outcome.ok) {
+                controller.enqueue(sseEncode({
+                  character: {
+                    id: asset.id,
+                    name: args.name,
+                    prompt: args.visualPrompt,
+                    pending: false,
+                    failed: true,
+                    error: outcome.error,
+                  },
+                }));
+                controller.enqueue(sseEncode({
+                  text: `\nFailed to generate character "${args.name}": ${outcome.error}\n`,
+                }));
+                fullResponse += `\n[Character "${args.name}" failed: ${outcome.error}]\n`;
+              } else {
+                controller.enqueue(sseEncode({
+                  character: {
+                    id: asset.id,
+                    name: args.name,
+                    uri: outcome.uri,
+                    prompt: args.visualPrompt,
+                    pending: false,
+                  },
+                }));
+                fullResponse += `\n[Character "${args.name}" generated: ${outcome.uri}]\n`;
+              }
             } catch (err) {
               const msg = err instanceof Error ? err.message : "Image generation failed";
+              if (pendingCharacterId) {
+                try {
+                  await failAssetGeneration(pendingCharacterId, msg);
+                } catch {
+                  /* ignore */
+                }
+                controller.enqueue(sseEncode({
+                  character: {
+                    id: pendingCharacterId,
+                    name: args.name,
+                    prompt: args.visualPrompt,
+                    pending: false,
+                    failed: true,
+                    error: msg,
+                  },
+                }));
+              }
               controller.enqueue(sseEncode({ text: `\nFailed to generate character "${args.name}": ${msg}\n` }));
               fullResponse += `\n[Character "${args.name}" failed: ${msg}]\n`;
             }
@@ -113,6 +190,7 @@ async function handleKeyframeChat(
               text: `\n\nGenerating keyframe: ${args.label} (beat ${args.beatIndex})...\n`,
             }));
 
+            let pendingKeyframeId: string | null = null;
             try {
               const refKeys: string[] = [];
 
@@ -120,7 +198,7 @@ async function handleKeyframeChat(
                 const charAssets = await getAssetsByKind(id, "character");
                 for (const charId of args.characterIds) {
                   const match = charAssets.find((a) => a.id === charId);
-                  if (match) {
+                  if (match?.generationStatus === "ready" && match.uri) {
                     refKeys.push(extractKeyFromUri(match.uri));
                   }
                 }
@@ -128,35 +206,85 @@ async function handleKeyframeChat(
 
               if (args.includeProductImage) {
                 const productAsset = await getProductImage(id);
-                if (productAsset) {
+                if (productAsset?.uri) {
                   refKeys.push(extractKeyFromUri(productAsset.uri));
                 }
               }
 
-              const result = await generateImage(
-                args.visualPrompt,
-                id,
-                refKeys.length > 0 ? refKeys : undefined,
-              );
-
-              const asset = await createAsset(id, "keyframe", result.uri, {
+              const asset = await createPendingAsset(id, "keyframe", {
                 shotIndex: args.beatIndex,
                 prompt: args.visualPrompt,
                 meta: JSON.stringify({ label: args.label }),
               });
+              pendingKeyframeId = asset.id;
 
               controller.enqueue(sseEncode({
                 keyframe: {
                   id: asset.id,
                   beatIndex: args.beatIndex,
                   label: args.label,
-                  uri: result.uri,
                   prompt: args.visualPrompt,
+                  pending: true,
                 },
               }));
-              fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} generated: ${result.uri}]\n`;
+
+              await sendImageGenerationJob({
+                assetId: asset.id,
+                sessionId: id,
+                prompt: args.visualPrompt,
+                referenceKeys: refKeys.length > 0 ? refKeys : undefined,
+              });
+
+              const outcome = await waitForImageAsset(asset.id);
+              if (!outcome.ok) {
+                controller.enqueue(sseEncode({
+                  keyframe: {
+                    id: asset.id,
+                    beatIndex: args.beatIndex,
+                    label: args.label,
+                    prompt: args.visualPrompt,
+                    pending: false,
+                    failed: true,
+                    error: outcome.error,
+                  },
+                }));
+                controller.enqueue(sseEncode({
+                  text: `\nFailed to generate keyframe "${args.label}": ${outcome.error}\n`,
+                }));
+                fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} failed: ${outcome.error}]\n`;
+              } else {
+                controller.enqueue(sseEncode({
+                  keyframe: {
+                    id: asset.id,
+                    beatIndex: args.beatIndex,
+                    label: args.label,
+                    uri: outcome.uri,
+                    prompt: args.visualPrompt,
+                    pending: false,
+                  },
+                }));
+                fullResponse += `\n[Keyframe "${args.label}" for beat ${args.beatIndex} generated: ${outcome.uri}]\n`;
+              }
             } catch (err) {
               const msg = err instanceof Error ? err.message : "Image generation failed";
+              if (pendingKeyframeId) {
+                try {
+                  await failAssetGeneration(pendingKeyframeId, msg);
+                } catch {
+                  /* ignore */
+                }
+                controller.enqueue(sseEncode({
+                  keyframe: {
+                    id: pendingKeyframeId,
+                    beatIndex: args.beatIndex,
+                    label: args.label,
+                    prompt: args.visualPrompt,
+                    pending: false,
+                    failed: true,
+                    error: msg,
+                  },
+                }));
+              }
               controller.enqueue(sseEncode({ text: `\nFailed to generate keyframe "${args.label}": ${msg}\n` }));
               fullResponse += `\n[Keyframe "${args.label}" failed: ${msg}]\n`;
             }

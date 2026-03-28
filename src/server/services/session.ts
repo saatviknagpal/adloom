@@ -120,10 +120,60 @@ export async function createAsset(
       sessionId,
       kind,
       uri,
+      generationStatus: "ready",
       region: opts?.region,
       shotIndex: opts?.shotIndex,
       prompt: opts?.prompt,
       meta: opts?.meta,
+    },
+  });
+}
+
+export async function createPendingAsset(
+  sessionId: string,
+  kind: string,
+  opts?: {
+    region?: string;
+    shotIndex?: number;
+    prompt?: string;
+    meta?: string;
+  },
+) {
+  return prisma.asset.create({
+    data: {
+      sessionId,
+      kind,
+      uri: null,
+      generationStatus: "pending",
+      region: opts?.region,
+      shotIndex: opts?.shotIndex,
+      prompt: opts?.prompt,
+      meta: opts?.meta,
+    },
+  });
+}
+
+export async function getAssetById(assetId: string) {
+  return prisma.asset.findUnique({ where: { id: assetId } });
+}
+
+export async function completeAssetGeneration(assetId: string, input: { uri: string }) {
+  return prisma.asset.update({
+    where: { id: assetId },
+    data: {
+      uri: input.uri,
+      generationStatus: "ready",
+      generationError: null,
+    },
+  });
+}
+
+export async function failAssetGeneration(assetId: string, message: string) {
+  return prisma.asset.update({
+    where: { id: assetId },
+    data: {
+      generationStatus: "failed",
+      generationError: message,
     },
   });
 }
